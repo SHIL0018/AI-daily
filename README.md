@@ -166,3 +166,7 @@ npm run build
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File desktop-client/scripts/start-client.ps1 -CheckOnly -SkipInstall
 ```
+
+## 许可证
+
+本项目基于 MIT License 开源，详见 [LICENSE](LICENSE)。
