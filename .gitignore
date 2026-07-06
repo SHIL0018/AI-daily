@@ -32,3 +32,6 @@ desktop-client/logs/
 desktop-client/.venv-model/
 desktop-client/logs/*.log
 desktop-client/logs/*.err.log
+
+# private design documents
+文档/
