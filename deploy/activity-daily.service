@@ -1,0 +1,17 @@
+[Unit]
+Description=Activity Daily Report FastAPI service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/activity-daily
+EnvironmentFile=/opt/activity-daily/.env
+Environment=APP_DATA_DIR=/opt/activity-daily/data
+ExecStart=/opt/activity-daily/.venv/bin/python -m uvicorn server.app.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+User=activitydaily
+Group=activitydaily
+
+[Install]
+WantedBy=multi-user.target

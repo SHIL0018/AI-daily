@@ -1,0 +1,50 @@
+{
+  "name": "activity-daily-desktop-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron desktop client for local screen activity summaries and sync.",
+  "main": "dist/main/main/app.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.main.json",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "vite build",
+    "build": "npm run build:main && npm run build:renderer",
+    "rebuild:native": "electron-rebuild -f -w better-sqlite3",
+    "dev:web": "vite --host 127.0.0.1 --port 5173",
+    "dev:electron": "npm run build:main && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .",
+    "start:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-client.ps1",
+    "start": "npm run build && electron .",
+    "dist": "npm run build && electron-builder"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "active-win": "latest",
+    "better-sqlite3": "latest",
+    "electron-log": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "cross-env": "latest",
+    "electron": "latest",
+    "electron-builder": "latest",
+    "typescript": "latest",
+    "vite": "latest"
+  },
+  "build": {
+    "appId": "com.activitydaily.client",
+    "productName": "Activity Daily Client",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ]
+  }
+}
+

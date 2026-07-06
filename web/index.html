@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>活动日报</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <section id="auth" class="auth-shell">
+        <div class="auth-brand">
+          <span class="brand-mark">AD</span>
+          <div>
+            <h1>活动日报</h1>
+            <p>记录本地活动，生成每日回顾。</p>
+          </div>
+        </div>
+        <div class="auth-card">
+          <div class="tabs" role="tablist" aria-label="账号操作">
+            <button id="loginTab" class="active" type="button">登录</button>
+            <button id="registerTab" type="button">注册</button>
+          </div>
+          <form id="authForm">
+            <label>邮箱<input id="email" type="email" required autocomplete="email" /></label>
+            <label id="usernameRow" hidden>用户名<input id="username" autocomplete="username" /></label>
+            <label>密码<input id="password" type="password" required autocomplete="current-password" /></label>
+            <button id="authSubmit" type="submit">登录</button>
+            <p id="authMessage" role="status"></p>
+          </form>
+        </div>
+      </section>
+
+      <section id="dashboard" class="dashboard-shell" hidden>
+        <aside class="sidebar">
+          <div class="sidebar-brand">
+            <span class="brand-mark">AD</span>
+            <div>
+              <strong>活动日报</strong>
+              <span>Activity Daily</span>
+            </div>
+          </div>
+          <nav class="nav" aria-label="主导航">
+            <a id="homeNav" class="active" href="/home" data-view="home"><span class="nav-icon">&#8962;</span>首页</a>
+            <a id="recordsNav" href="/records" data-view="records"><span class="nav-icon">&#8801;</span>记录管理</a>
+            <a id="apiKeysNav" href="/api-keys" data-view="apiKeys"><span class="nav-icon">&#9671;</span>API 管理</a>
+          </nav>
+        </aside>
+
+        <section class="workspace">
+          <header class="app-topbar">
+            <div class="page-heading">
+              <p class="eyebrow" id="viewEyebrow">首页</p>
+              <h1 id="viewTitle">活动总览</h1>
+            </div>
+            <div class="top-actions">
+              <div class="toolbar">
+                <input id="dateInput" type="date" aria-label="选择日期" />
+                <button id="loadReportBtn" type="button">刷新</button>
+                <select id="modelSelect" aria-label="AI 分析模型">
+                  <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+                  <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+                </select>
+                <button id="aiBtn" type="button">AI 分析</button>
+                <a id="exportMd" class="button secondary" target="_blank" rel="noreferrer">导出 Markdown</a>
+              </div>
+              <details class="user-menu" id="userMenu">
+                <summary>
+                  <span class="user-avatar">U</span>
+                  <span class="user-copy">
+                    <strong id="userName">当前用户</strong>
+                    <small>账户</small>
+                  </span>
+                </summary>
+                <div class="user-dropdown">
+                  <div class="user-meta">
+                    <span>已登录</span>
+                    <strong id="userEmail">当前用户</strong>
+                  </div>
+                  <button id="logoutBtn" class="menu-danger" type="button">退出登录</button>
+                </div>
+              </details>
+            </div>
+          </header>
+
+          <section id="homeView" class="view">
+            <section class="overview-layout">
+              <article class="panel summary-panel chart-panel">
+                <div class="section-title">
+                  <div>
+                    <p class="eyebrow">时间分布</p>
+                    <h2 id="reportTitle">今日分类占比</h2>
+                  </div>
+                  <span id="staleBadge"></span>
+                </div>
+                <div class="donut-layout">
+                  <div class="donut-wrap">
+                    <div id="categoryDonut" class="category-donut">
+                      <div>
+                        <strong id="donutTotal">0</strong>
+                        <span>总时长</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div id="categoryLegend" class="donut-legend"></div>
+                </div>
+                <p id="overview" class="overview"></p>
+              </article>
+
+              <article class="panel ai-panel">
+                <div class="section-title compact">
+                  <h2>AI 分析</h2>
+                  <span id="aiStatus" class="status-pill"></span>
+                </div>
+                <h3 id="aiTitle"></h3>
+                <p id="aiSummary"></p>
+                <ul id="suggestions" class="suggestion-list"></ul>
+              </article>
+            </section>
+
+            <section class="stats" id="stats"></section>
+
+            <section class="content-grid">
+              <article class="panel timeline-panel">
+                <div class="section-title">
+                  <div>
+                    <p class="eyebrow">活动流</p>
+                    <h2>活动时间线</h2>
+                  </div>
+                  <span id="timelineCount" class="count-pill">0 段</span>
+                </div>
+                <div id="timeline" class="timeline"></div>
+              </article>
+
+              <aside class="insight-column">
+                <article class="panel stats-panel">
+                  <h2>分类统计</h2>
+                  <div id="categories"></div>
+                </article>
+                <article class="panel stats-panel">
+                  <h2>应用统计</h2>
+                  <div id="apps"></div>
+                </article>
+              </aside>
+            </section>
+          </section>
+
+          <section id="apiKeysView" class="view" hidden>
+            <article class="panel api-key-panel">
+              <div class="section-title">
+                <div>
+                  <p class="eyebrow">API 管理</p>
+                  <h2>DeepSeek API Key</h2>
+                </div>
+                <span id="apiKeyBadge" class="status-pill">未配置</span>
+              </div>
+              <p class="api-help">保存你自己的 DeepSeek API Key，AI 分析会优先使用这个 Key。</p>
+              <div class="api-status-grid">
+                <div>
+                  <span>状态</span>
+                  <strong id="apiKeyStatusText">未配置</strong>
+                </div>
+                <div>
+                  <span>已保存的 Key</span>
+                  <strong id="apiKeyHint">-</strong>
+                </div>
+              </div>
+              <form id="apiKeyForm" class="api-key-form">
+                <label>DeepSeek API Key<input id="deepseekApiKey" type="password" autocomplete="off" placeholder="输入 DeepSeek API Key" /></label>
+                <div class="api-key-actions">
+                  <button id="saveApiKeyBtn" type="submit">保存 API Key</button>
+                  <button id="deleteApiKeyBtn" class="secondary danger-lite" type="button">删除已保存 Key</button>
+                </div>
+              </form>
+              <p id="apiKeyMessage" class="form-message"></p>
+              <p class="api-tip">为了安全，保存后页面不会回显完整 Key。</p>
+            </article>
+          </section>
+
+          <section id="recordsView" class="view" hidden>
+            <article class="panel records-panel">
+              <div class="section-title">
+                <div>
+                  <p class="eyebrow">记录管理</p>
+                  <h2>活动记录</h2>
+                </div>
+                <span id="recordCount" class="count-pill">0 条</span>
+              </div>
+              <div class="records-head">
+                <span>时间</span>
+                <span>分类</span>
+                <span>应用</span>
+                <span>摘要</span>
+                <span></span>
+              </div>
+              <div id="records" class="records-list"></div>
+            </article>
+          </section>
+        </section>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

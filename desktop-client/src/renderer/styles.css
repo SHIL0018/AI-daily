@@ -1,0 +1,53 @@
+:root {
+  font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
+  color: #172033;
+  background: #f7f8fb;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: #f7f8fb; }
+button, input, select {
+  height: 38px;
+  border: 1px solid #d9dee8;
+  border-radius: 6px;
+  font: inherit;
+}
+button {
+  padding: 0 14px;
+  background: #166c64;
+  border-color: #166c64;
+  color: white;
+  cursor: pointer;
+}
+button.ghost { background: white; color: #234d7a; border-color: #d9dee8; }
+input, select { padding: 0 10px; width: 100%; }
+label { display: grid; gap: 6px; color: #667085; }
+
+.app { width: min(1180px, calc(100% - 32px)); margin: 22px auto 48px; }
+header, .sectionTitle { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+h1 { margin: 0 0 6px; font-size: 28px; }
+h2 { margin-top: 0; font-size: 18px; }
+p { color: #667085; }
+.panel {
+  background: white;
+  border: 1px solid #d9dee8;
+  border-radius: 8px;
+  padding: 18px;
+  box-shadow: 0 8px 22px rgba(30, 42, 62, .05);
+}
+.cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 18px 0; }
+.cards div { background: white; border: 1px solid #d9dee8; border-radius: 8px; padding: 14px; }
+.cards span { color: #667085; font-size: 13px; }
+.cards strong { display: block; margin-top: 8px; font-size: 24px; }
+.cards div.wide { grid-column: 1 / -1; }
+.cards div.wide strong { font-size: 13px; color: #b42318; overflow-wrap: anywhere; white-space: normal; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px; }
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 18px; align-items: start; margin-top: 18px; }
+.login form, .settings { display: grid; gap: 12px; }
+.records { margin-top: 18px; }
+.record { border-left: 3px solid #166c64; padding: 10px 12px; background: #f9fbfc; border-radius: 6px; margin-bottom: 10px; }
+.record time { display: block; color: #667085; font-size: 13px; margin-bottom: 4px; }
+.record span { display: block; color: #667085; margin-top: 4px; }
+.message { background: #e8f5f2; border: 1px solid #b7ddd6; border-radius: 6px; padding: 10px 12px; color: #166c64; }
+.error { color: #b42318; }
+@media (max-width: 860px) { .cards, .grid { grid-template-columns: 1fr; } header { align-items: flex-start; } }
