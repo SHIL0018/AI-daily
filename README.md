@@ -1,144 +1,207 @@
-# 屏幕活动记录与 AI 日报生成系统
+# Activity Daily
 
-项目分为三个运行边界：
+Activity Daily is a personal activity review system that turns local desktop activity into structured records, visual dashboards, and AI-generated daily reports.
 
-- Windows 11 本地客户端：`desktop-client/`
-- Ubuntu 远程服务端：`server-spring/`，Spring Boot 3 + Java 17
-- Web 日报前端：`web-vue/`，Vue 3 + Vite + TypeScript，由 Nginx 托管
+It is built around three parts: a Windows desktop client, a Spring Boot backend, and a Vue 3 web console. The desktop client keeps screen capture and visual summarization local first. The backend handles authentication, device sync, records, reports, API key management, and AI analysis jobs. The web console gives users a clean dashboard for daily review.
 
-本地客户端负责屏幕采集、本地视觉模型识图摘要、隐私过滤、本地 SQLite 缓存和同步队列。远程服务端负责认证、设备、活动记录、规则日报、用户 DeepSeek API Key 管理和 AI 分析任务。Web 前端负责首页、记录管理、API 管理、顶部栏、侧边栏和用户操作。
+> Activity Daily is designed for personal reflection and productivity review, not employee surveillance.
 
-原 `server/` 与 `web/` 是 FastAPI + 静态 Web 的旧 MVP 实现，已保留作迁移参考；新部署默认使用 `server-spring/` 与 `web-vue/`。
+## Highlights
 
-## 目录结构
+- **Local-first desktop capture**: Windows 11 Electron client records active windows and screen context.
+- **Local vision model support**: screenshots are summarized locally before structured records are synced.
+- **Duplicate-screen skipping**: screenshot similarity/hash checks avoid repeated local model calls when the screen has not changed.
+- **Privacy-aware workflow**: sensitive windows can be filtered locally, and AI analysis uses sanitized activity summaries.
+- **Offline cache and sync queue**: local SQLite storage keeps records available even when the network is unavailable.
+- **User-owned AI API key**: no default server key is bundled; each user configures their own DeepSeek API key.
+- **Encrypted key storage**: API keys are encrypted by the Spring Boot backend and only masked hints are returned.
+- **AI daily reports**: daily summaries include highlights, timeline commentary, focus analysis, suggestions, and risk flags.
+- **Modern web console**: Vue 3, Pinia, Vue Router, and ECharts power the dashboard and management pages.
+- **Ubuntu deployment ready**: systemd, Nginx, Docker Compose, and deployment scripts are included.
+
+## Architecture
+
+```text
+Windows 11 Desktop Client
+  Electron + React + TypeScript
+  Screen capture / active window detection
+  Local vision model service
+  Local SQLite cache and sync queue
+              |
+              | HTTP/HTTPS API
+              v
+Spring Boot Server
+  Spring Boot 3 + Java 17
+  Spring Security + JWT
+  JDBC + Flyway
+  PostgreSQL in production / H2 for local development
+  DeepSeek-compatible AI analysis jobs
+              |
+              v
+Vue Web Console
+  Vue 3 + TypeScript + Vite
+  Pinia + Vue Router
+  ECharts dashboards
+  Nginx static hosting in production
+```
+
+## Repository Layout
 
 ```text
 .
-├── desktop-client/          Windows Electron 本地客户端
-├── server-spring/           Spring Boot 3 服务端
-│   ├── src/main/java/       Controller、Service、安全、AI、业务模块
-│   └── src/main/resources/  application.yml、Flyway 迁移脚本
-├── web-vue/                 Vue 3 Web 前端
-│   ├── src/views/           首页、记录管理、API 管理、登录注册
-│   ├── src/stores/          Pinia 状态
-│   └── src/api.ts           API 请求封装
-├── deploy/                  systemd 与 Nginx 配置
-├── scripts/                 Ubuntu 部署脚本
-├── server/                  旧 FastAPI MVP 实现，迁移参考
-├── web/                     旧静态 Web MVP 实现，迁移参考
-├── tests/                   旧服务端 smoke test
-├── Dockerfile               Spring Boot + Vue 构建入口
-├── docker-compose.yml       Spring Boot + PostgreSQL 编排
-└── .env.example             服务端环境变量模板
+|-- desktop-client/          Windows desktop client, Electron + React
+|-- server-spring/           Main backend, Spring Boot 3 + Java 17
+|   |-- src/main/java/       Controllers, services, security, AI and business modules
+|   `-- src/main/resources/  application.yml and Flyway migrations
+|-- web-vue/                 Web console, Vue 3 + Vite + TypeScript
+|   |-- src/views/           Home, records, API key and auth pages
+|   |-- src/stores/          Pinia stores
+|   `-- src/api.ts           API request wrapper
+|-- deploy/                  systemd and Nginx deployment config
+|-- scripts/                 Ubuntu deployment helper scripts
+|-- server/                  Legacy FastAPI MVP, kept as migration reference
+|-- web/                     Legacy static web MVP, kept as migration reference
+|-- Dockerfile               Spring Boot + Vue build entry
+|-- docker-compose.yml       Spring Boot + PostgreSQL local deployment
+|-- .env.example             Environment variable template
+`-- LICENSE                  MIT License
 ```
 
-以下目录是本地运行或构建产物，不属于源码架构，已在 `.gitignore` 中忽略：
+Private design documents, local model files, build outputs, databases, and logs are intentionally ignored by Git.
+
+## Tech Stack
+
+| Area | Stack |
+| --- | --- |
+| Desktop client | Electron, React, TypeScript, Vite, better-sqlite3 |
+| Backend | Spring Boot 3.3, Java 17, Spring Security, JDBC, Flyway |
+| Database | PostgreSQL for production, H2 for local development |
+| Web frontend | Vue 3, TypeScript, Vite, Pinia, Vue Router, ECharts |
+| Deployment | Ubuntu, systemd, Nginx, Docker Compose |
+| AI analysis | DeepSeek-compatible chat completion API |
+
+## Quick Start
+
+### 1. Clone
+
+```bash
+git clone https://github.com/SHIL0018/AI-daily.git
+cd AI-daily
+```
+
+### 2. Backend
+
+The Spring Boot backend can run locally with the default H2 file database.
+
+```bash
+cd server-spring
+mvn spring-boot:run
+```
+
+Default backend URL:
 
 ```text
-desktop-client/node_modules/
-desktop-client/dist/
-desktop-client/release/
-desktop-client/.venv-model/
-desktop-client/logs/
-desktop-client/local-models/ollama/Qwen3.5-0.8B/
-web-vue/node_modules/
-web-vue/dist/
-server-spring/target/
-data/
-文档/
+http://127.0.0.1:8080
 ```
 
-## Windows 11 本地客户端
+Swagger UI:
 
-一键启动：
+```text
+http://127.0.0.1:8080/swagger-ui.html
+```
+
+Build the backend jar:
+
+```bash
+cd server-spring
+mvn -DskipTests package
+```
+
+### 3. Web Frontend
+
+```bash
+cd web-vue
+npm install
+npm run dev
+```
+
+Default frontend development URL:
+
+```text
+http://127.0.0.1:5174
+```
+
+Production build:
+
+```bash
+cd web-vue
+npm run build
+```
+
+### 4. Windows Desktop Client
+
+```powershell
+cd desktop-client
+npm install
+npm run typecheck
+npm run build
+```
+
+One-click Windows startup script:
 
 ```powershell
 cd desktop-client
 .\start-client.cmd
 ```
 
-本地模型文件放在：
+Place the local vision model here:
 
 ```text
 desktop-client/local-models/ollama/Qwen3.5-0.8B
 ```
 
-默认通过 Transformers / OpenAI-compatible 服务加载本地模型：
+The desktop client expects a local OpenAI-compatible vision service by default:
 
 ```text
 http://127.0.0.1:8001/v1
 ```
 
-## Spring Boot 服务端开发
+## Configuration
 
-本地构建：
+Copy the example environment file before production deployment:
 
-```powershell
-cd server-spring
-mvn -DskipTests package
+```bash
+cp .env.example .env
 ```
 
-本地运行默认使用 H2 文件库：
-
-```powershell
-cd server-spring
-mvn spring-boot:run
-```
-
-服务端默认监听：
+Important variables:
 
 ```text
-http://127.0.0.1:8080
+SERVER_PORT=8080
+APP_TOKEN_SECRET=change-me
+APP_API_KEY_SECRET=change-me-too
+APP_DATABASE_URL=jdbc:postgresql://127.0.0.1:5432/activity_daily
+APP_DATABASE_USERNAME=activitydaily
+APP_DATABASE_PASSWORD=change-me
+APP_DATABASE_DRIVER=org.postgresql.Driver
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_DEFAULT_MODEL=deepseek-v4-flash
+DEEPSEEK_DEEP_ANALYSIS_MODEL=deepseek-v4-pro
 ```
 
-Swagger：
+For local development, the backend can run without PostgreSQL and will use an H2 file database. PostgreSQL is recommended for production.
 
-```text
-http://127.0.0.1:8080/swagger-ui.html
-```
+## Deployment
 
-## Vue 前端开发
+### Ubuntu + systemd + Nginx
 
-```powershell
-cd web-vue
-npm install
-npm run dev
-```
-
-开发服务器默认监听：
-
-```text
-http://127.0.0.1:5174
-```
-
-生产构建：
-
-```powershell
-cd web-vue
-npm run build
-```
-
-## Ubuntu 远程部署
-
-部署脚本会安装 OpenJDK 17、Maven、Node.js/npm、Nginx、PostgreSQL，构建 Spring Boot jar 和 Vue dist，并配置 systemd + Nginx。
+The deployment helper installs runtime dependencies, builds the Spring Boot jar and Vue frontend, then configures systemd and Nginx.
 
 ```bash
 bash scripts/deploy_ubuntu.sh
 ```
 
-部署后访问：
-
-```text
-http://<服务器IP>/
-```
-
-后端只监听本机：
-
-```text
-http://127.0.0.1:8080
-```
-
-常用命令：
+Useful service commands:
 
 ```bash
 sudo systemctl status activity-daily
@@ -147,50 +210,43 @@ sudo systemctl restart activity-daily
 sudo nginx -t
 ```
 
-生产环境建议继续接入域名和 HTTPS 证书，例如使用 Caddy 或 Certbot。
+In production, put Nginx in front of the Spring Boot service. The backend should listen on localhost, and Nginx should serve `web-vue/dist` while proxying `/api/` to Spring Boot.
 
-## Docker Compose
+### Docker Compose
 
 ```bash
 cp .env.example .env
-# 修改 APP_TOKEN_SECRET、APP_API_KEY_SECRET、APP_DATABASE_PASSWORD
-sudo docker compose up -d --build
+# Edit APP_TOKEN_SECRET, APP_API_KEY_SECRET and APP_DATABASE_PASSWORD first.
+docker compose up -d --build
 ```
 
-Compose 默认启动 PostgreSQL 与 Spring Boot API，Web 前端构建产物会被打入镜像；如需对外提供 Vue 页面，推荐仍使用 Nginx 托管 `web-vue/dist`。
+The compose file starts PostgreSQL and the Spring Boot API. For public web access, serving the built Vue files with Nginx is still recommended.
 
 ## DeepSeek API Key
 
-服务端不提供默认 Key。每个用户登录 Web 后，在“API 管理”页面自行填写 DeepSeek API Key。Key 在 Spring Boot 版本中使用 AES-GCM 加密后保存，接口只返回脱敏 hint。
+Activity Daily does not ship with a default server-side API key. Each user signs in to the web console and adds their own DeepSeek API key on the API management page.
 
-未配置 Key 时，点击 AI 分析会提示先配置 API Key，后端返回：
+- The key is encrypted before being stored by the Spring Boot backend.
+- API responses only expose a masked key hint.
+- If no key is configured, AI analysis returns `API_KEY_REQUIRED` and the frontend asks the user to configure a key first.
 
-```json
-{
-  "detail": {
-    "code": "API_KEY_REQUIRED",
-    "message": "请先在 API 管理中配置 DeepSeek API Key"
-  }
-}
-```
+## Verification
 
-## 验证
+Backend:
 
-后端：
-
-```powershell
+```bash
 cd server-spring
 mvn -DskipTests package
 ```
 
-前端：
+Frontend:
 
-```powershell
+```bash
 cd web-vue
 npm run build
 ```
 
-客户端：
+Desktop client:
 
 ```powershell
 cd desktop-client
@@ -198,6 +254,21 @@ npm run typecheck
 npm run build
 ```
 
-## 许可证
+## Privacy Notes
 
-本项目基于 MIT License 开源，详见 [LICENSE](LICENSE)。
+- Raw screenshots should stay on the local machine unless the system is explicitly extended to upload them.
+- AI analysis uses sanitized structured activity records rather than sensitive raw content.
+- Keep `.env`, database files, logs, and local model files out of Git.
+- Use HTTPS before exposing the service on the public internet.
+
+## Roadmap
+
+- HTTPS automation and domain-based production deployment.
+- More robust desktop packaging and auto-update flow.
+- Better AI prompt evaluation and result quality checks.
+- Optional screenshot retention policy and encrypted local archive.
+- More dashboard views for weekly and monthly review.
+
+## License
+
+This project is open-sourced under the [MIT License](LICENSE).
