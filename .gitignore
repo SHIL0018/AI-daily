@@ -35,3 +35,7 @@ desktop-client/logs/*.err.log
 
 # private design documents
 文档/
+
+web-vue/node_modules/
+web-vue/dist/
+server-spring/target/

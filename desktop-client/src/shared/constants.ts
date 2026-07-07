@@ -1,4 +1,4 @@
-﻿export const ACTIVITY_CATEGORIES = [
+export const ACTIVITY_CATEGORIES = [
   "编程开发",
   "文档写作",
   "论文阅读",
@@ -33,7 +33,7 @@ export const DEFAULT_SETTINGS = {
   modelBaseUrl: "http://127.0.0.1:8001/v1",
   modelName: "local-models/ollama/Qwen3.5-0.8B",
   modelTimeoutSeconds: 30,
-  serverUrl: "http://111.229.36.195:8000",
+  serverUrl: "http://111.229.36.195",
   syncIntervalSeconds: 60,
   syncBatchSize: 100,
   maxRetryCount: 5

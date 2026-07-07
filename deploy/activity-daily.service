@@ -1,13 +1,12 @@
 [Unit]
-Description=Activity Daily Report FastAPI service
-After=network.target
+Description=Activity Daily Spring Boot service
+After=network.target postgresql.service
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/activity-daily
+WorkingDirectory=/opt/activity-daily/server-spring
 EnvironmentFile=/opt/activity-daily/.env
-Environment=APP_DATA_DIR=/opt/activity-daily/data
-ExecStart=/opt/activity-daily/.venv/bin/python -m uvicorn server.app.main:app --host 0.0.0.0 --port 8000
+ExecStart=/usr/bin/java -jar /opt/activity-daily/server-spring/activity-daily-server.jar
 Restart=always
 RestartSec=5
 User=activitydaily

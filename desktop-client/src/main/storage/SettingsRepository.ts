@@ -35,6 +35,7 @@ export class SettingsRepository {
       );
     }
     this.migrateLegacyModelDefaults();
+    this.migrateLegacyServerUrl();
   }
 
   private migrateLegacyModelDefaults(): void {
@@ -45,6 +46,12 @@ export class SettingsRepository {
       this.set("modelProvider", DEFAULT_SETTINGS.modelProvider);
       this.set("modelBaseUrl", DEFAULT_SETTINGS.modelBaseUrl);
       this.set("modelName", DEFAULT_SETTINGS.modelName);
+    }
+  }
+  private migrateLegacyServerUrl(): void {
+    const serverUrl = this.get<string>("serverUrl", "");
+    if (serverUrl === "http://111.229.36.195:8000") {
+      this.set("serverUrl", DEFAULT_SETTINGS.serverUrl);
     }
   }
 }

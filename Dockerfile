@@ -1,18 +1,21 @@
-FROM python:3.11-slim
+FROM node:22-alpine AS web-build
+WORKDIR /src/web-vue
+COPY web-vue/package*.json ./
+RUN npm ci
+COPY web-vue ./
+RUN npm run build
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    APP_DATA_DIR=/app/data
+FROM maven:3.9-eclipse-temurin-17 AS server-build
+WORKDIR /src/server-spring
+COPY server-spring/pom.xml ./
+RUN mvn -q -DskipTests dependency:go-offline
+COPY server-spring ./
+RUN mvn -q -DskipTests package
 
+FROM eclipse-temurin:17-jre
 WORKDIR /app
-
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY server ./server
-COPY web ./web
-
-RUN mkdir -p /app/data
-
-EXPOSE 8000
-CMD ["python", "-m", "uvicorn", "server.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENV SERVER_PORT=8080
+COPY --from=server-build /src/server-spring/target/activity-daily-server-*.jar /app/activity-daily-server.jar
+COPY --from=web-build /src/web-vue/dist /app/static
+EXPOSE 8080
+CMD ["java", "-jar", "/app/activity-daily-server.jar"]

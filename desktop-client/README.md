@@ -120,7 +120,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-client.ps1 -Ch
 启动客户端后，在设置页把“服务端地址”改成你的远程 Ubuntu 服务端地址，例如：
 
 ```text
-http://你的服务器IP:8000
+http://你的服务器IP
 ```
 
 或 HTTPS 域名：
@@ -129,7 +129,7 @@ http://你的服务器IP:8000
 https://your-domain.example.com
 ```
 
-然后使用 Web 端注册过的账号登录，并点击“登录并注册设备”。
+当前服务器已经通过 Nginx 暴露 80 端口，不再使用旧的 `:8000` 地址。然后使用 Web 端注册过的账号登录，并点击“登录并注册设备”。
 
 ## 本地记录内容很泛怎么办
 

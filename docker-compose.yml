@@ -1,4 +1,15 @@
 services:
+  db:
+    image: postgres:16-alpine
+    container_name: activity-daily-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: activity_daily
+      POSTGRES_USER: activitydaily
+      POSTGRES_PASSWORD: ${APP_DATABASE_PASSWORD:-change-me-db-password}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+
   app:
     build: .
     container_name: activity-daily-app
@@ -6,8 +17,12 @@ services:
     env_file:
       - .env
     environment:
-      APP_DATA_DIR: /app/data
+      SERVER_PORT: 8080
+      APP_DATABASE_URL: jdbc:postgresql://db:5432/activity_daily
+      APP_DATABASE_USERNAME: activitydaily
+      APP_DATABASE_PASSWORD: ${APP_DATABASE_PASSWORD:-change-me-db-password}
+      APP_DATABASE_DRIVER: org.postgresql.Driver
+    depends_on:
+      - db
     ports:
-      - "8000:8000"
-    volumes:
-      - ./data:/app/data
+      - "8080:8080"
