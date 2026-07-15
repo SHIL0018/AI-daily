@@ -51,7 +51,19 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Activity Daily Client"
-    }
+      "shortcutName": "Activity Daily Client",
+      "include": "build/installer.nsh",
+      "runAfterFinish": false
+    },
+    "extraFiles": [
+      {
+        "from": "launchers/start-client-installed.cmd",
+        "to": "start-client.cmd"
+      },
+      {
+        "from": "launchers/start-client-installed.ps1",
+        "to": "start-client.ps1"
+      }
+    ]
   }
 }
