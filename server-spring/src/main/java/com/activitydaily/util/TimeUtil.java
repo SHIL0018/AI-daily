@@ -31,6 +31,14 @@ public final class TimeUtil {
         }
     }
 
+    public static String startOfDateIso(String dateText) {
+        return LocalDate.parse(dateText).atStartOfDay(SHANGHAI).toOffsetDateTime().toString();
+    }
+
+    public static String startOfNextDateIso(String dateText) {
+        return LocalDate.parse(dateText).plusDays(1).atStartOfDay(SHANGHAI).toOffsetDateTime().toString();
+    }
+
     private static String normalizeIso(String value) {
         return value.endsWith("Z") ? value.replace("Z", "+00:00") : value;
     }

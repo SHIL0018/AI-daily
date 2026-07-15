@@ -14,7 +14,7 @@ export class ApiClient {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password })
     });
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await this.errorText(response));
     const json = await response.json();
     return { accessToken: json.data.access_token, refreshToken: json.data.refresh_token, expiresIn: json.data.expires_in };
   }
@@ -27,7 +27,7 @@ export class ApiClient {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refresh_token: refreshToken })
     });
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await this.errorText(response));
     const json = await response.json();
     const accessToken = json.data.access_token;
     this.saveAccessToken?.(accessToken);
@@ -73,11 +73,11 @@ export class ApiClient {
     if (!token) throw new Error("Not logged in");
 
     let response = await this.authorizedFetch(path, init, token);
-    if (response.status === 401 && this.getRefreshToken?.()) {
+    if ((response.status === 401 || response.status === 403) && this.getRefreshToken?.()) {
       token = await this.refreshAccessToken();
       response = await this.authorizedFetch(path, init, token);
     }
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await this.errorText(response));
     return response;
   }
 
@@ -86,6 +86,17 @@ export class ApiClient {
       ...init,
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(init.headers ?? {}) }
     });
+  }
+
+  private async errorText(response: Response): Promise<string> {
+    const text = await response.text();
+    if (!text) return `HTTP ${response.status} ${response.statusText || "Request failed"}`;
+    try {
+      const body = JSON.parse(text);
+      return body?.detail?.message || body?.message || `HTTP ${response.status}: ${text}`;
+    } catch {
+      return `HTTP ${response.status}: ${text}`;
+    }
   }
 
   private baseUrl(): string {

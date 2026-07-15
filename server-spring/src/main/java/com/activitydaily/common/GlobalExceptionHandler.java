@@ -1,5 +1,6 @@
 package com.activitydaily.common;
 
+import java.time.format.DateTimeParseException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -29,8 +30,13 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(ApiError.of("INVALID_PARAMS", "email exists or invalid params"));
     }
 
+    @ExceptionHandler(DateTimeParseException.class)
+    public ResponseEntity<ApiError> handleDateParse(DateTimeParseException ex) {
+        return ResponseEntity.badRequest().body(ApiError.of("INVALID_PARAMS", "日期格式必须是 yyyy-MM-dd"));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnknown(Exception ex) {
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ApiError.of("INTERNAL_ERROR", ex.getMessage()));
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ApiError.of("INTERNAL_ERROR", "服务器内部错误"));
     }
 }

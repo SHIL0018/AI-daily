@@ -16,9 +16,10 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,13 +30,15 @@ public class AiService {
     private final ActivityDailyProperties properties;
     private final ApiKeyService apiKeyService;
     private final ReportService reportService;
+    private final Executor aiTaskExecutor;
 
-    public AiService(JdbcTemplate jdbc, ObjectMapper mapper, ActivityDailyProperties properties, ApiKeyService apiKeyService, ReportService reportService) {
+    public AiService(JdbcTemplate jdbc, ObjectMapper mapper, ActivityDailyProperties properties, ApiKeyService apiKeyService, ReportService reportService, @Qualifier("aiTaskExecutor") Executor aiTaskExecutor) {
         this.jdbc = jdbc;
         this.mapper = mapper;
         this.properties = properties;
         this.apiKeyService = apiKeyService;
         this.reportService = reportService;
+        this.aiTaskExecutor = aiTaskExecutor;
     }
 
     @Transactional
@@ -68,7 +71,7 @@ public class AiService {
                 VALUES (?, ?, ?, 'daily', ?, 'pending', ?, ?, ?, 'daily-v2', ?, ?, ?)
                 """, jobId, userId, reportId, dateText, mode, model, inputHash, JsonUtil.write(mapper, payload), TimeUtil.nowTs(), TimeUtil.nowTs());
         jdbc.update("UPDATE daily_reports SET ai_analysis_status='pending', ai_analysis_job_id=?, updated_at=? WHERE user_id=? AND report_date=?", jobId, TimeUtil.nowTs(), userId, dateText);
-        CompletableFuture.runAsync(() -> runJob(jobId));
+        CompletableFuture.runAsync(() -> runJob(jobId), aiTaskExecutor);
         return Map.of("job_id", jobId, "status", "pending", "cached", false);
     }
 
@@ -89,8 +92,15 @@ public class AiService {
         return result;
     }
 
-    @Async
     public void runJob(String jobId) {
+        try {
+            runJobInternal(jobId);
+        } catch (Exception ex) {
+            markJobFailed(jobId, ex);
+        }
+    }
+
+    private void runJobInternal(String jobId) {
         var jobs = jdbc.queryForList("SELECT * FROM ai_analysis_jobs WHERE id=?", jobId);
         if (jobs.isEmpty()) return;
         Map<String, Object> job = jobs.get(0);
@@ -121,6 +131,14 @@ public class AiService {
         if (usage.get("total_tokens") > 0) {
             jdbc.update("INSERT INTO ai_analysis_token_usage (id, user_id, job_id, usage_date, model_name, input_tokens, output_tokens, total_tokens, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", TextUtil.newId(), job.get("user_id"), jobId, finishedDate, job.get("model_name"), usage.get("input_tokens"), usage.get("output_tokens"), usage.get("total_tokens"), TimeUtil.nowTs());
         }
+    }
+
+    private void markJobFailed(String jobId, Exception ex) {
+        jdbc.update("""
+                UPDATE ai_analysis_jobs
+                SET status='failed', error_code='JOB_FAILED', error_message=?, finished_at=?, updated_at=?
+                WHERE id=? AND status IN ('pending','running')
+                """, ex.getMessage(), TimeUtil.nowTs(), TimeUtil.nowTs(), jobId);
     }
 
     private CallResult callDeepSeek(Map<String, Object> payload, String modelName, String apiKey) throws Exception {

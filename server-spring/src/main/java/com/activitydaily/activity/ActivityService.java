@@ -86,26 +86,35 @@ public class ActivityService {
         deviceService.ensureActiveUser(userId);
         int safePage = Math.max(page, 1);
         int safePageSize = Math.min(Math.max(pageSize, 1), 200);
+        int offset = (safePage - 1) * safePageSize;
+
         List<Object> params = new ArrayList<>();
-        StringBuilder sql = new StringBuilder("SELECT id, start_time, end_time, duration_seconds, summary, category, app_name, privacy_level, confidence FROM activity_records WHERE user_id=? AND is_deleted=FALSE");
+        StringBuilder where = new StringBuilder(" WHERE user_id=? AND is_deleted=FALSE");
         params.add(userId);
+        if (date != null && !date.isBlank()) {
+            where.append(" AND start_time >= ? AND start_time < ?");
+            params.add(TimeUtil.startOfDateIso(date));
+            params.add(TimeUtil.startOfNextDateIso(date));
+        }
         if (category != null && !category.isBlank()) {
-            sql.append(" AND category=?");
+            where.append(" AND category=?");
             params.add(category);
         }
-        sql.append(" ORDER BY start_time ASC");
-        List<Map<String, Object>> all = jdbc.queryForList(sql.toString(), params.toArray());
-        if (date != null && !date.isBlank()) {
-            all = all.stream().filter(row -> date.equals(TimeUtil.dateFromIso(String.valueOf(row.get("start_time"))))).toList();
-        }
-        int total = all.size();
-        int from = Math.min((safePage - 1) * safePageSize, total);
-        int to = Math.min(from + safePageSize, total);
+
+        Integer total = jdbc.queryForObject("SELECT COUNT(*) FROM activity_records" + where, Integer.class, params.toArray());
+        List<Object> pageParams = new ArrayList<>(params);
+        pageParams.add(safePageSize);
+        pageParams.add(offset);
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+                SELECT id, start_time, end_time, duration_seconds, summary, category, app_name, privacy_level, confidence
+                FROM activity_records
+                """ + where + " ORDER BY start_time ASC LIMIT ? OFFSET ?", pageParams.toArray());
+
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("date", date);
         data.put("timezone", userTimezone(userId));
-        data.put("records", all.subList(from, to));
-        data.put("pagination", Map.of("page", safePage, "page_size", safePageSize, "total", total));
+        data.put("records", rows);
+        data.put("pagination", Map.of("page", safePage, "page_size", safePageSize, "total", total == null ? 0 : total));
         return data;
     }
 

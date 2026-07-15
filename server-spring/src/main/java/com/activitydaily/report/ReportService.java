@@ -170,8 +170,11 @@ public class ReportService {
     }
 
     private List<Map<String, Object>> recordsForDate(String userId, String dateText) {
-        return jdbc.queryForList("SELECT * FROM activity_records WHERE user_id=? AND is_deleted=FALSE ORDER BY start_time ASC", userId)
-                .stream().filter(row -> dateText.equals(TimeUtil.dateFromIso(String.valueOf(row.get("start_time"))))).toList();
+        return jdbc.queryForList("""
+                SELECT * FROM activity_records
+                WHERE user_id=? AND is_deleted=FALSE AND start_time >= ? AND start_time < ?
+                ORDER BY start_time ASC
+                """, userId, TimeUtil.startOfDateIso(dateText), TimeUtil.startOfNextDateIso(dateText));
     }
 
     private List<Map<String, Object>> mergeTimeline(List<Map<String, Object>> records) {

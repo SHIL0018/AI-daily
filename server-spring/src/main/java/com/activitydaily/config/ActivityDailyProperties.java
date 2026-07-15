@@ -1,5 +1,6 @@
 package com.activitydaily.config;
 
+import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "activity-daily")
@@ -13,6 +14,7 @@ public class ActivityDailyProperties {
     private String deepseekDeepModel;
     private int deepseekTimeoutSeconds;
     private int deepseekMaxRetries;
+    private List<String> allowedOrigins = List.of("*");
 
     public String getJwtSecret() { return jwtSecret; }
     public void setJwtSecret(String jwtSecret) { this.jwtSecret = jwtSecret; }
@@ -32,4 +34,6 @@ public class ActivityDailyProperties {
     public void setDeepseekTimeoutSeconds(int deepseekTimeoutSeconds) { this.deepseekTimeoutSeconds = deepseekTimeoutSeconds; }
     public int getDeepseekMaxRetries() { return deepseekMaxRetries; }
     public void setDeepseekMaxRetries(int deepseekMaxRetries) { this.deepseekMaxRetries = deepseekMaxRetries; }
+    public List<String> getAllowedOrigins() { return allowedOrigins; }
+    public void setAllowedOrigins(List<String> allowedOrigins) { this.allowedOrigins = allowedOrigins == null || allowedOrigins.isEmpty() ? List.of("*") : allowedOrigins; }
 }
