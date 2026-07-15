@@ -1,4 +1,6 @@
-﻿import path from "node:path";
+import { app } from "electron";
+import fs from "node:fs";
+import path from "node:path";
 import type { ClientSettings, ModelHealth, ModelSummary, ScreenSummaryInput } from "../../shared/types";
 import { PromptBuilder } from "./PromptBuilder";
 import { ModelOutputParser } from "./ModelOutputParser";
@@ -81,7 +83,13 @@ export class OpenAiCompatibleAdapter implements ModelAdapter {
     const raw = this.settings.modelName.trim() || "local-models/ollama/Qwen3.5-0.8B";
     if (path.isAbsolute(raw)) return raw;
     if (raw.startsWith(".") || raw.startsWith("local-models") || raw.includes("\\")) {
-      return path.resolve(process.cwd(), raw);
+      const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+      const candidates = [
+        path.resolve(process.cwd(), raw),
+        path.join(app.getPath("userData"), raw),
+        ...(resourcesPath ? [path.join(resourcesPath, raw)] : [])
+      ];
+      return candidates.find((candidate) => fs.existsSync(path.join(candidate, "config.json"))) ?? candidates[0];
     }
     return raw;
   }

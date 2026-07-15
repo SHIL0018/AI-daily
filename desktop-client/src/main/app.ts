@@ -20,6 +20,7 @@ import { RecordScheduler } from "./scheduler/RecordScheduler";
 import { SyncQueue } from "./sync/SyncQueue";
 import { SyncService } from "./sync/SyncService";
 import { errorMessage, logger } from "./logs/logger";
+import { RuntimeBootstrap } from "./runtime/RuntimeBootstrap";
 
 let mainWindow: BrowserWindow | undefined;
 let isQuitting = false;
@@ -84,6 +85,9 @@ app.whenReady().then(() => {
     return new OllamaAdapter(settings);
   };
   const scheduler = new RecordScheduler(settingsRepository, records, sessions, activeWindow, capture, privacy, modelAdapterFactory, new IdleDetector(), syncService);
+
+  const runtimeBootstrap = new RuntimeBootstrap(settingsRepository);
+  void runtimeBootstrap.ensure().then(() => scheduler.healthCheck()).catch((error) => logger.error("Runtime bootstrap failed", errorMessage(error)));
 
   syncService.startAutoSync();
   registerIpcHandlers({ scheduler, syncService, settingsRepository, records });
