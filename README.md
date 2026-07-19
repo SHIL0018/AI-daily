@@ -141,6 +141,16 @@ npm run build
 
 ### 4. 启动 Windows 本地客户端
 
+普通用户可以直接从 [GitHub Releases](https://github.com/SHIL0018/AI-daily/releases/latest) 下载 Windows 安装包。安装时可以自行选择安装位置；安装完成后，从桌面或开始菜单启动，命令行窗口会先检查 Python、本地模型与模型服务，准备完成后自动进入客户端并关闭命令行窗口。
+
+安装版默认从以下目录读取本地模型：
+
+```text
+%APPDATA%\Activity Daily Client\local-models\ollama\Qwen3.5-0.8B
+```
+
+从源码运行时：
+
 ```powershell
 cd desktop-client
 npm install
@@ -265,7 +275,7 @@ npm run build
 ## Roadmap
 
 - 自动化 HTTPS 与域名部署流程。
-- 更完整的桌面客户端打包和自动更新机制。
+- 桌面客户端自动更新机制。
 - 更系统的 AI 提示词评估与结果质量检查。
 - 可选的截图留存策略和本地加密归档。
 - 周报、月报和更多长期复盘视图。

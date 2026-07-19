@@ -2,7 +2,29 @@
 
 这是 Windows 11 本地桌面客户端，负责本地屏幕采集、本地大模型识图摘要、本地 SQLite 缓存，并把最小化后的活动记录同步到远程 Ubuntu 服务端。
 
-## 一键启动
+## 安装版（推荐）
+
+从 [GitHub Releases](https://github.com/SHIL0018/AI-daily/releases/latest) 下载 `Activity Daily Client Setup` 安装包。安装向导支持修改安装位置。
+
+从桌面或开始菜单启动后，会先打开命令行窗口检查 Python、本地模型和模型服务；检查完成后自动进入客户端并关闭命令行窗口。
+
+安装版的模型文件建议放在：
+
+```text
+%APPDATA%\Activity Daily Client\local-models\ollama\Qwen3.5-0.8B
+```
+
+安装版日志位于：
+
+```text
+%APPDATA%\Activity Daily Client\logs\launcher.log
+%APPDATA%\Activity Daily Client\logs\model-service.log
+%APPDATA%\Activity Daily Client\logs\model-service.err.log
+```
+
+首次启动时如果模型运行环境尚未安装，启动器会自动创建 Python 虚拟环境并安装依赖，所需时间取决于网络速度。模型权重不会包含在安装包中，需要用户自行放入上述目录。
+
+## 源码一键启动
 
 双击运行：
 
@@ -31,6 +53,10 @@ cd <项目目录>\desktop-client
 如果 `http://127.0.0.1:8001/v1/models` 没有响应，启动器会自动尝试启动本地模型服务。
 
 启动成功后，cmd 窗口会自动关闭；如果启动失败，窗口会停留并提示查看 `logs/start-client.log`。
+
+## 运行状态
+
+客户端会使用不同颜色显示当前记录状态和可执行操作：绿色表示记录中，橙色表示已暂停，灰色表示未开始或已停止，红色表示异常。开始记录后，“平均推理”会统计当前记录会话中实际调用本地模型的平均耗时；截图相似而跳过模型的采集不会计入该平均值。
 
 
 ## 关闭窗口

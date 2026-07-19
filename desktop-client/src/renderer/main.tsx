@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { ActivityRecord, ClientSettings, RecorderStatus } from "../shared/types";
+import type { ActivityRecord, ClientSettings, RecorderState, RecorderStatus } from "../shared/types";
 import { formatShanghaiTime } from "../shared/time";
 import "./styles.css";
 
@@ -23,6 +23,19 @@ function formatSeconds(value: number) {
   const hours = Math.floor(value / 3600);
   const minutes = Math.floor((value % 3600) / 60);
   return hours ? `${hours} 小时 ${minutes} 分钟` : `${minutes} 分钟`;
+}
+
+const RECORDER_STATE_LABELS: Record<RecorderState, string> = {
+  Idle: "未开始",
+  Recording: "记录中",
+  Paused: "已暂停",
+  Stopped: "已停止",
+  Error: "异常"
+};
+
+function formatInferenceTime(valueMs: number) {
+  if (valueMs < 1000) return `${valueMs} ms`;
+  return `${(valueMs / 1000).toFixed(valueMs >= 10000 ? 1 : 2)} 秒`;
 }
 
 function LoginPanel({ connected, onDone }: { connected: boolean; onDone: () => void }) {
@@ -79,12 +92,19 @@ function LoginPanel({ connected, onDone }: { connected: boolean; onDone: () => v
 }
 
 function StatusCards({ status }: { status?: RecorderStatus }) {
+  const state = status?.state ?? "Idle";
+  const inference = status?.inference;
   return (
     <section className="cards">
-      <div><span>记录状态</span><strong>{status?.state ?? "Idle"}</strong></div>
-      <div><span>模型状态</span><strong>{status?.model.status ?? "unknown"}</strong></div>
-      <div><span>今日时长</span><strong>{formatSeconds(status?.todaySeconds ?? 0)}</strong></div>
-      <div><span>待同步</span><strong>{status?.sync.pending ?? 0}</strong></div>
+      <div className={`status-card state-${state.toLowerCase()}`}><span>记录状态</span><strong>{RECORDER_STATE_LABELS[state]}</strong></div>
+      <div className={`status-card model-${status?.model.status ?? "unknown"}`}><span>模型状态</span><strong>{status?.model.status ?? "unknown"}</strong></div>
+      <div className="status-card inference-card">
+        <span>平均推理</span>
+        <strong>{inference?.count ? formatInferenceTime(inference.averageMs) : inference?.inProgress ? "推理中..." : "等待首次推理"}</strong>
+        <small>{inference?.count ? `已完成 ${inference.count} 次` : "仅统计实际模型调用"}</small>
+      </div>
+      <div className="status-card"><span>今日时长</span><strong>{formatSeconds(status?.todaySeconds ?? 0)}</strong></div>
+      <div className="status-card"><span>待同步</span><strong>{status?.sync.pending ?? 0}</strong></div>
     </section>
   );
 }
@@ -150,6 +170,7 @@ function App() {
   const [settings, setSettings] = useState<ClientSettings & Record<string, unknown>>();
   const [records, setRecords] = useState<ActivityRecord[]>([]);
   const [message, setMessage] = useState("");
+  const [pendingAction, setPendingAction] = useState("");
 
   async function refreshDynamic() {
     setStatus(await window.desktop.recorder.status());
@@ -170,16 +191,24 @@ function App() {
     return () => clearInterval(id);
   }, []);
 
-  async function action(fn: () => Promise<unknown>, label: string) {
+  async function action(fn: () => Promise<unknown>, label: string, key = label) {
+    if (pendingAction) return;
     setMessage("");
+    setPendingAction(key);
     try {
       await fn();
       setMessage(`${label}完成`);
       await refreshDynamic();
     } catch (err) {
       setMessage(String(err));
+    } finally {
+      setPendingAction("");
     }
   }
+
+  const recorderState = status?.state ?? "Idle";
+  const hasPendingAction = Boolean(pendingAction);
+  const canStop = recorderState === "Recording" || recorderState === "Paused" || recorderState === "Error";
 
   return (
     <main className="app">
@@ -189,13 +218,13 @@ function App() {
       </header>
       <StatusCards status={status} />
       <section className="toolbar panel">
-        <button onClick={() => action(() => window.desktop.recorder.start(), "开始记录")}>开始</button>
-        <button onClick={() => action(() => window.desktop.recorder.pause(), "暂停")}>暂停</button>
-        <button onClick={() => action(() => window.desktop.recorder.resume(), "恢复")}>恢复</button>
-        <button onClick={() => action(() => window.desktop.recorder.stop(), "停止")}>停止</button>
-        <button onClick={() => action(() => window.desktop.sync.run(), "同步")}>立即同步</button>
-        <button className="ghost" onClick={() => action(() => window.desktop.model.health(), "模型检查")}>检查模型</button>
-        <button className="ghost" onClick={() => action(() => window.desktop.logs.openFolder(), "打开日志")}>打开日志</button>
+        <button className={`record-action action-start ${recorderState === "Recording" ? "is-current" : ""}`} disabled={hasPendingAction || recorderState === "Recording" || recorderState === "Paused"} onClick={() => action(() => window.desktop.recorder.start(), "开始记录", "start")}>{pendingAction === "start" ? "启动中..." : "开始"}</button>
+        <button className={`record-action action-pause ${recorderState === "Paused" ? "is-current" : ""}`} disabled={hasPendingAction || recorderState !== "Recording"} onClick={() => action(() => window.desktop.recorder.pause(), "暂停", "pause")}>{pendingAction === "pause" ? "暂停中..." : "暂停"}</button>
+        <button className="record-action action-resume" disabled={hasPendingAction || recorderState !== "Paused"} onClick={() => action(() => window.desktop.recorder.resume(), "恢复", "resume")}>{pendingAction === "resume" ? "恢复中..." : "恢复"}</button>
+        <button className={`record-action action-stop ${recorderState === "Stopped" || recorderState === "Idle" ? "is-current" : ""}`} disabled={hasPendingAction || !canStop} onClick={() => action(() => window.desktop.recorder.stop(), "停止", "stop")}>{pendingAction === "stop" ? "停止中..." : "停止"}</button>
+        <button className="action-sync" disabled={hasPendingAction} onClick={() => action(() => window.desktop.sync.run(), "同步", "sync")}>{pendingAction === "sync" ? "同步中..." : "立即同步"}</button>
+        <button className="ghost" disabled={hasPendingAction} onClick={() => action(() => window.desktop.model.health(), "模型检查", "health")}>{pendingAction === "health" ? "检查中..." : "检查模型"}</button>
+        <button className="ghost" disabled={hasPendingAction} onClick={() => action(() => window.desktop.logs.openFolder(), "打开日志", "logs")}>打开日志</button>
       </section>
       {message && <p className="message">{message}</p>}
       <section className="grid">
@@ -203,7 +232,7 @@ function App() {
           <LoginPanel connected={Boolean(settings?.accessToken)} onDone={loadInitial} />
           <RecordsPanel records={records} reload={refreshDynamic} />
         </div>
-        <SettingsPanel settings={settings} disabled={status?.state === "Recording"} onSaved={(updated) => { setSettings(updated); void refreshDynamic(); }} />
+        <SettingsPanel settings={settings} disabled={status?.state === "Recording" || pendingAction === "start" || pendingAction === "resume"} onSaved={(updated) => { setSettings(updated); void refreshDynamic(); }} />
       </section>
     </main>
   );

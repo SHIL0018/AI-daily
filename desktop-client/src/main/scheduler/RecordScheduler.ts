@@ -32,6 +32,10 @@ export class RecordScheduler {
   private readonly modelHealthTtlMs = 5 * 60 * 1000;
   private lastVisualSummary?: VisualSummaryCache;
   private readonly visualHashMaxDistance = 8;
+  private inferenceTotalMs = 0;
+  private inferenceCount = 0;
+  private lastInferenceMs?: number;
+  private inferenceInProgress = false;
 
   constructor(
     private readonly settingsRepository: SettingsRepository,
@@ -52,6 +56,10 @@ export class RecordScheduler {
     const deviceId = this.settingsRepository.get<string>("deviceId", "local-device-unregistered");
     this.sessionId = this.sessions.create(deviceId);
     this.lastError = undefined;
+    this.inferenceTotalMs = 0;
+    this.inferenceCount = 0;
+    this.lastInferenceMs = undefined;
+    this.inferenceInProgress = false;
     logger.info("Recorder session created", { sessionId: this.sessionId, deviceId, captureIntervalSeconds: settings.captureIntervalSeconds, modelProvider: settings.modelProvider, modelBaseUrl: settings.modelBaseUrl, modelName: settings.modelName });
     this.state = "Recording";
     await this.captureOnce();
@@ -97,6 +105,12 @@ export class RecordScheduler {
       state: this.state,
       sessionId: this.sessionId,
       model: this.modelHealth,
+      inference: {
+        averageMs: this.inferenceCount > 0 ? Math.round(this.inferenceTotalMs / this.inferenceCount) : 0,
+        count: this.inferenceCount,
+        lastMs: this.lastInferenceMs,
+        inProgress: this.inferenceInProgress
+      },
       sync: this.syncService.status(),
       todaySeconds: this.records.todaySeconds(),
       lastRecord,
@@ -166,13 +180,30 @@ export class RecordScheduler {
           this.modelHealth = await this.cachedHealthCheck(settings);
           logger.debug("Model health before summarize", this.modelHealth);
           logger.debug("Model summarize requested", { provider: settings.modelProvider, modelName: settings.modelName });
-          const summary = await adapter.summarize({
-            requestId: crypto.randomUUID(),
-            timestamp: now.toISOString(),
-            appName: active.appName,
-            windowTitle: this.privacy.sanitizeWindowTitle(active.windowTitle),
-            imageBase64: frame.imageBase64
-          });
+          const inferenceStartedAt = Date.now();
+          let inferenceDurationMs: number | undefined;
+          let summary: ModelSummary;
+          this.inferenceInProgress = true;
+          try {
+            summary = await adapter.summarize({
+              requestId: crypto.randomUUID(),
+              timestamp: now.toISOString(),
+              appName: active.appName,
+              windowTitle: this.privacy.sanitizeWindowTitle(active.windowTitle),
+              imageBase64: frame.imageBase64
+            });
+            inferenceDurationMs = Math.max(0, Date.now() - inferenceStartedAt);
+            this.lastInferenceMs = inferenceDurationMs;
+            this.inferenceTotalMs += inferenceDurationMs;
+            this.inferenceCount += 1;
+            logger.info("Model inference timing updated", {
+              durationMs: inferenceDurationMs,
+              count: this.inferenceCount,
+              averageMs: Math.round(this.inferenceTotalMs / this.inferenceCount)
+            });
+          } finally {
+            this.inferenceInProgress = false;
+          }
           const usableSummary = this.preventRepeatedSummary(summary, previous, active);
           logger.debug("Model summarize completed", { category: usableSummary.category, confidence: usableSummary.confidence, sensitive: usableSummary.sensitive, adjusted: usableSummary !== summary });
           record = this.buildRecord(
@@ -183,7 +214,7 @@ export class RecordScheduler {
             this.privacy.sanitizeSummary(usableSummary.summary),
             usableSummary.confidence,
             usableSummary.sensitive ? "private" : "normal",
-            { local_model_skipped: false, screen_hash: frame.imageHash }
+            { local_model_skipped: false, local_model_inference_ms: inferenceDurationMs, screen_hash: frame.imageHash }
           );
           this.rememberVisualSummary(frame.imageHash, active, record);
         }

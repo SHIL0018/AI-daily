@@ -122,10 +122,18 @@ export interface RecorderStatus {
   state: RecorderState;
   sessionId?: string;
   model: ModelHealth;
+  inference: InferenceStats;
   sync: SyncStatus;
   todaySeconds: number;
   lastRecord?: ActivityRecord;
   errorMessage?: string;
+}
+
+export interface InferenceStats {
+  averageMs: number;
+  count: number;
+  lastMs?: number;
+  inProgress: boolean;
 }
 
 export interface SyncStatus {
