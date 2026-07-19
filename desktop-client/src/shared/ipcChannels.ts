@@ -11,6 +11,8 @@ export const IPC = {
   recordsList: "records:list",
   recordsClear: "records:clear",
   authLogin: "auth:login",
+  authStatus: "auth:status",
+  authLogout: "auth:logout",
   deviceRegister: "device:register",
   openWebReport: "web-report:open",
   openLogsFolder: "logs:open-folder",

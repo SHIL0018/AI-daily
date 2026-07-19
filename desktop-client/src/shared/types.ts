@@ -150,6 +150,13 @@ export interface LoginResult {
   expiresIn: number;
 }
 
+export interface AuthStatus {
+  hasSession: boolean;
+  canUseOffline: boolean;
+  serverReachable: boolean;
+  email?: string;
+}
+
 export interface SyncResult {
   accepted: number;
   duplicated: number;

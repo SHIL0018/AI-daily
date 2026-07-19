@@ -6,6 +6,7 @@
   "main": "dist/main/main/app.js",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.main.json",
+    "test": "vitest run",
     "build:main": "tsc -p tsconfig.main.json",
     "build:renderer": "vite build",
     "build": "npm run build:main && npm run build:renderer",
@@ -21,6 +22,7 @@
     "active-win": "latest",
     "better-sqlite3": "latest",
     "electron-log": "latest",
+    "lucide-react": "^0.468.0",
     "react": "latest",
     "react-dom": "latest"
   },
@@ -33,7 +35,8 @@
     "electron": "latest",
     "electron-builder": "latest",
     "typescript": "latest",
-    "vite": "latest"
+    "vite": "latest",
+    "vitest": "^3.2.7"
   },
   "build": {
     "appId": "com.activitydaily.client",

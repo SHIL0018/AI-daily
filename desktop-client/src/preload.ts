@@ -14,6 +14,8 @@ const IPC = {
   recordsList: "records:list",
   recordsClear: "records:clear",
   authLogin: "auth:login",
+  authStatus: "auth:status",
+  authLogout: "auth:logout",
   deviceRegister: "device:register",
   openWebReport: "web-report:open",
   openLogsFolder: "logs:open-folder",
@@ -44,7 +46,9 @@ const api = {
   },
   auth: {
     login: (email: string, password: string) => ipcRenderer.invoke(IPC.authLogin, email, password),
-    registerDevice: () => ipcRenderer.invoke(IPC.deviceRegister)
+    registerDevice: () => ipcRenderer.invoke(IPC.deviceRegister),
+    status: () => ipcRenderer.invoke(IPC.authStatus),
+    logout: () => ipcRenderer.invoke(IPC.authLogout)
   },
   webReport: {
     open: () => ipcRenderer.invoke(IPC.openWebReport)

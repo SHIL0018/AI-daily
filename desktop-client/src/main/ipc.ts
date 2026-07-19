@@ -25,13 +25,19 @@ export function registerIpcHandlers(options: {
   ipcMain.handle(IPC.syncRun, () => syncService.syncOnce());
   ipcMain.handle(IPC.recordsList, (_event, limit?: number) => records.list(limit ?? 100));
   ipcMain.handle(IPC.recordsClear, () => records.clear());
-  ipcMain.handle(IPC.settingsGet, () => settingsRepository.getAll());
+  ipcMain.handle(IPC.settingsGet, () => publicSettings(settingsRepository));
   ipcMain.handle(IPC.settingsUpdate, (_event, patch: Partial<ClientSettings> & Record<string, unknown>) => {
     if (!scheduler.canUpdateSettings()) throw new Error("正在记录时不能修改设置");
     for (const [key, value] of Object.entries(validateSettingsPatch(patch))) settingsRepository.set(key, value);
-    return settingsRepository.getAll();
+    return publicSettings(settingsRepository);
   });
   ipcMain.handle(IPC.authLogin, (_event, email: string, password: string) => syncService.login(email, password));
+  ipcMain.handle(IPC.authStatus, () => syncService.authStatus());
+  ipcMain.handle(IPC.authLogout, async () => {
+    const state = (await scheduler.status()).state;
+    if (state === "Recording" || state === "Paused") throw new Error("请先停止记录，再退出账号");
+    syncService.logout();
+  });
   ipcMain.handle(IPC.deviceRegister, () => syncService.registerDevice());
   ipcMain.handle(IPC.openWebReport, () => {
     const settings = settingsRepository.getAll();
@@ -39,6 +45,13 @@ export function registerIpcHandlers(options: {
   });
   ipcMain.handle(IPC.openLogsFolder, () => shell.openPath(logsDir));
   ipcMain.handle(IPC.getLogPath, () => clientLogPath);
+}
+
+function publicSettings(settingsRepository: SettingsRepository): ClientSettings & Record<string, unknown> {
+  const settings = { ...settingsRepository.getAll() };
+  delete settings.accessToken;
+  delete settings.refreshToken;
+  return settings;
 }
 
 

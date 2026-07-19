@@ -1,5 +1,5 @@
 import os from "node:os";
-import type { ClientSettings, SyncResult, SyncStatus } from "../../shared/types";
+import type { AuthStatus, ClientSettings, SyncResult, SyncStatus } from "../../shared/types";
 import { ActivityRecordRepository } from "../storage/ActivityRecordRepository";
 import { SettingsRepository } from "../storage/SettingsRepository";
 import { PrivacyService } from "../privacy/PrivacyService";
@@ -63,7 +63,31 @@ export class SyncService {
     const result = await api.login(email, password);
     this.settingsRepository.set("accessToken", result.accessToken);
     this.settingsRepository.set("refreshToken", result.refreshToken);
+    this.settingsRepository.set("accountEmail", email.trim());
     return result;
+  }
+
+  async authStatus(): Promise<AuthStatus> {
+    const settings = this.settingsRepository.getAll();
+    const refreshToken = this.settingsRepository.get<string>("refreshToken", "");
+    const deviceId = this.settingsRepository.get<string>("deviceId", "");
+    const email = this.settingsRepository.get<string>("accountEmail", "");
+    const canUseOffline = Boolean(refreshToken && deviceId);
+    let serverReachable = false;
+    try {
+      const response = await fetch(`${settings.serverUrl.replace(/\/$/, "")}/health`, { signal: AbortSignal.timeout(3000) });
+      serverReachable = response.ok;
+    } catch {
+      serverReachable = false;
+    }
+    return { hasSession: canUseOffline, canUseOffline, serverReachable, email: email || undefined };
+  }
+
+  logout(): void {
+    this.settingsRepository.set("accessToken", "");
+    this.settingsRepository.set("refreshToken", "");
+    this.settingsRepository.set("deviceId", "");
+    this.settingsRepository.set("accountEmail", "");
   }
 
   async registerDevice(): Promise<string> {
