@@ -1,6 +1,6 @@
 {
   "name": "activity-daily-desktop-client",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Electron desktop client for local screen activity summaries and sync.",
   "main": "dist/main/main/app.js",
