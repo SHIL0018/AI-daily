@@ -2,7 +2,22 @@ __pycache__/
 *.pyc
 *.pyo
 *.db
+*.log
 .env
+.git/
+.github/
+.idea/
+.vscode/
+.venv/
+node_modules/
+**/node_modules/
+**/target/
+**/dist/
+**/release/
+desktop-client/
+server/
+web/
+tests/
 data/
 文档/
 

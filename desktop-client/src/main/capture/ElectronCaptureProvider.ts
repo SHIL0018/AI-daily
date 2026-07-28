@@ -1,6 +1,6 @@
 import { desktopCapturer, systemPreferences } from "electron";
-import type { ActiveWindowInfo, CaptureFrame, PermissionStatus } from "../../shared/types";
-import type { CaptureProvider } from "./CaptureProvider";
+import type { ActiveWindowInfo, PermissionStatus } from "../../shared/types";
+import type { CapturedFrame, CaptureProvider } from "./CaptureProvider";
 
 function perceptualHash(image: Electron.NativeImage): string | undefined {
   if (image.isEmpty()) return undefined;
@@ -35,7 +35,7 @@ function perceptualHash(image: Electron.NativeImage): string | undefined {
   return hash;
 }
 
-function frameFromSource(source: Electron.DesktopCapturerSource, mode: CaptureFrame["source"]): CaptureFrame {
+function frameFromSource(source: Electron.DesktopCapturerSource, mode: CapturedFrame["source"]): CapturedFrame {
   const image = source.thumbnail;
   const size = image.getSize();
   return {
@@ -44,9 +44,12 @@ function frameFromSource(source: Electron.DesktopCapturerSource, mode: CaptureFr
     displayId: source.display_id,
     width: size.width,
     height: size.height,
-    imageBase64: image.toPNG().toString("base64"),
     imageHash: perceptualHash(image),
-    source: mode
+    source: mode,
+    encodeForModel: () => ({
+      imageBase64: image.toJPEG(80).toString("base64"),
+      imageMimeType: "image/jpeg"
+    })
   };
 }
 
@@ -58,15 +61,17 @@ export class ElectronCaptureProvider implements CaptureProvider {
     return "unknown";
   }
 
-  async capturePrimaryScreen(): Promise<CaptureFrame> {
+  async capturePrimaryScreen(): Promise<CapturedFrame> {
     const sources = await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: 1280, height: 720 } });
     if (!sources[0]) throw new Error("No screen source available");
     return frameFromSource(sources[0], "primary_monitor");
   }
 
-  async captureActiveScreen(activeWindow: ActiveWindowInfo): Promise<CaptureFrame> {
+  async captureActiveScreen(activeWindow: ActiveWindowInfo): Promise<CapturedFrame> {
     const sources = await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: 1280, height: 720 } });
     const matched = activeWindow.displayId ? sources.find((source) => source.display_id === activeWindow.displayId) : undefined;
-    return frameFromSource(matched ?? sources[0], "active_monitor");
+    const source = matched ?? sources[0];
+    if (!source) throw new Error("No screen source available");
+    return frameFromSource(source, "active_monitor");
   }
 }

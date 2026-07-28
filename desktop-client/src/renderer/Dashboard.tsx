@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import type { AuthStatus } from "../shared/types";
 import type { RecorderActionKey } from "./controlState";
@@ -17,6 +17,10 @@ export function Dashboard({ authStatus, onLogout }: { authStatus: AuthStatus; on
   const offline = !authStatus.serverReachable;
   const state = dashboard.status?.state;
   const settingsLocked = state === "Recording" || state === "Paused" || dashboard.pendingAction === "start" || dashboard.pendingAction === "resume";
+
+  useEffect(() => {
+    if (recordsOpen) void dashboard.loadRecordPage(1);
+  }, [recordsOpen, dashboard.loadRecordPage]);
 
   function recorderAction(action: RecorderActionKey) {
     const labels = { start: "记录已开始", pause: "记录已暂停", resume: "记录已恢复", stop: "记录已停止" };
@@ -43,6 +47,7 @@ export function Dashboard({ authStatus, onLogout }: { authStatus: AuthStatus; on
             pendingAction={dashboard.pendingAction}
             onModelCheck={() => void dashboard.runAction("health", "模型检查完成", () => window.desktop.model.health())}
             onSync={() => void dashboard.runAction("sync", "同步完成", () => window.desktop.sync.run())}
+            onRetryFailed={() => void dashboard.runAction("retry-sync", "失败记录已重新加入同步队列", () => window.desktop.sync.retryFailed())}
           />
         </section>
         <RecentRecords records={dashboard.records} onViewAll={() => setRecordsOpen(true)} />
@@ -61,10 +66,10 @@ export function Dashboard({ authStatus, onLogout }: { authStatus: AuthStatus; on
       />
       <RecordsDrawer
         open={recordsOpen}
-        records={dashboard.records}
+        recordPage={dashboard.recordPage}
         pendingAction={dashboard.pendingAction}
         onClose={() => setRecordsOpen(false)}
-        onRefresh={dashboard.refreshDynamic}
+        onPage={dashboard.loadRecordPage}
         onClear={dashboard.clearRecords}
       />
     </main>

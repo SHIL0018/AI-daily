@@ -229,6 +229,8 @@ h1, h2, h3, p { overflow-wrap: anywhere; }
 .records-drawer-toolbar > div { display: flex; gap: 7px; }
 .records-drawer-toolbar button { min-height: 34px; font-size: 10px; }
 .drawer-record-list { display: grid; padding: 0 16px 20px; }
+.drawer-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 0 16px 20px; }
+.drawer-pagination span { min-width: 56px; color: var(--muted); text-align: center; font-size: 11px; }
 .drawer-record { min-height: 83px; display: grid; grid-template-columns: 62px minmax(0, 1fr) 75px; gap: 12px; align-items: center; border-bottom: 1px solid #edf1ef; }
 .drawer-record-time strong { display: block; font-family: Bahnschrift, "Segoe UI", sans-serif; font-size: 12px; }
 .drawer-record-time span { display: block; margin-top: 2px; color: var(--muted); font-size: 8px; }

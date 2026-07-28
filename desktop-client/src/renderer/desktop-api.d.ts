@@ -1,4 +1,4 @@
-import type { ActivityRecord, AuthStatus, ClientSettings, RecorderStatus } from "../shared/types";
+import type { ActivityRecord, ActivityRecordPage, AuthStatus, ClientSettings, DashboardUpdate, RecorderStatus } from "../shared/types";
 
 declare global {
   interface Window {
@@ -11,12 +11,17 @@ declare global {
         status(): Promise<RecorderStatus>;
       };
       model: { health(): Promise<unknown> };
-      sync: { run(): Promise<unknown> };
+      sync: { run(): Promise<unknown>; retryFailed(): Promise<unknown> };
       settings: {
         get(): Promise<ClientSettings & Record<string, unknown>>;
         update(patch: Partial<ClientSettings> & Record<string, unknown>): Promise<ClientSettings & Record<string, unknown>>;
       };
-      records: { list(limit?: number): Promise<ActivityRecord[]>; clear(): Promise<void> };
+      records: {
+        list(limit?: number): Promise<ActivityRecord[]>;
+        page(page?: number, pageSize?: number): Promise<ActivityRecordPage>;
+        clear(): Promise<void>;
+      };
+      dashboard: { subscribe(listener: (update: DashboardUpdate) => void): () => void };
       auth: {
         login(email: string, password: string): Promise<unknown>;
         registerDevice(): Promise<string>;

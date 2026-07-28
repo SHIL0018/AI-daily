@@ -31,14 +31,20 @@ export class OllamaAdapter implements ModelAdapter {
           stream: false,
           options: { temperature: 0.2, top_p: 0.8, num_predict: 256 }
         }),
-        signal: AbortSignal.timeout(this.settings.modelTimeoutSeconds * 1000)
+        signal: requestSignal(input.signal, this.settings.modelTimeoutSeconds * 1000)
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = (await response.json()) as { response?: string };
       return this.parser.parse(input.requestId, data.response ?? "", input.appName, input.windowTitle);
-    } catch {
+    } catch (error) {
+      if (input.signal?.aborted) throw error;
       return this.parser.fallback(input.requestId, input.appName, input.windowTitle);
     }
   }
+}
+
+function requestSignal(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 

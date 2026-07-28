@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ActivityRecord, ClientSettings, RecorderStatus } from "../../shared/types";
+import type { ActivityRecord, ActivityRecordPage, ClientSettings, RecorderStatus } from "../../shared/types";
 import { friendlyError } from "../formatters";
 
 export type DashboardSettings = ClientSettings & Record<string, unknown>;
@@ -9,6 +9,7 @@ export function useClientDashboard() {
   const [status, setStatus] = useState<RecorderStatus>();
   const [settings, setSettings] = useState<DashboardSettings>();
   const [records, setRecords] = useState<ActivityRecord[]>([]);
+  const [recordPage, setRecordPage] = useState<ActivityRecordPage>({ items: [], page: 1, pageSize: 50, totalItems: 0, totalPages: 1 });
   const [pendingAction, setPendingAction] = useState("");
   const [notice, setNotice] = useState<Notice>();
   const [loading, setLoading] = useState(true);
@@ -16,7 +17,7 @@ export function useClientDashboard() {
   const refreshDynamic = useCallback(async () => {
     const [nextStatus, nextRecords] = await Promise.all([
       window.desktop.recorder.status(),
-      window.desktop.records.list(500)
+      window.desktop.records.list(3)
     ]);
     setStatus(nextStatus);
     setRecords(nextRecords);
@@ -28,7 +29,7 @@ export function useClientDashboard() {
       const [nextStatus, nextSettings, nextRecords] = await Promise.all([
         window.desktop.recorder.status(),
         window.desktop.settings.get(),
-        window.desktop.records.list(500)
+        window.desktop.records.list(3)
       ]);
       setStatus(nextStatus);
       setSettings(nextSettings);
@@ -42,13 +43,28 @@ export function useClientDashboard() {
 
   useEffect(() => {
     void loadInitial();
+    const unsubscribe = window.desktop.dashboard.subscribe((update) => {
+      setStatus(update.status);
+      setRecords(update.recentRecords);
+    });
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") {
         void refreshDynamic().catch((error) => setNotice({ tone: "error", text: friendlyError(error) }));
       }
-    }, 10000);
-    return () => window.clearInterval(timer);
+    }, 60000);
+    return () => {
+      unsubscribe();
+      window.clearInterval(timer);
+    };
   }, [loadInitial, refreshDynamic]);
+
+  const loadRecordPage = useCallback(async (page = 1) => {
+    try {
+      setRecordPage(await window.desktop.records.page(page, 50));
+    } catch (error) {
+      setNotice({ tone: "error", text: friendlyError(error) });
+    }
+  }, []);
 
   const runAction = useCallback(async (key: string, successText: string, task: () => Promise<unknown>) => {
     if (pendingAction) return;
@@ -85,17 +101,20 @@ export function useClientDashboard() {
 
   const clearRecords = useCallback(async () => {
     await runAction("clear-records", "本地记录已清空", () => window.desktop.records.clear());
-  }, [runAction]);
+    await loadRecordPage(1);
+  }, [loadRecordPage, runAction]);
 
   return {
     status,
     settings,
     records,
+    recordPage,
     pendingAction,
     notice,
     loading,
     setNotice,
     refreshDynamic,
+    loadRecordPage,
     runAction,
     saveSettings,
     clearRecords

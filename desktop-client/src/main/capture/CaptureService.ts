@@ -1,5 +1,5 @@
-import type { ActiveWindowInfo, CaptureFrame, ClientSettings } from "../../shared/types";
-import type { CaptureProvider } from "./CaptureProvider";
+import type { ActiveWindowInfo, ClientSettings } from "../../shared/types";
+import type { CapturedFrame, CaptureProvider } from "./CaptureProvider";
 
 export class CaptureService {
   constructor(private readonly provider: CaptureProvider) {}
@@ -8,7 +8,7 @@ export class CaptureService {
     return this.provider.checkPermission();
   }
 
-  capture(settings: ClientSettings, activeWindow: ActiveWindowInfo): Promise<CaptureFrame> {
+  capture(settings: ClientSettings, activeWindow: ActiveWindowInfo): Promise<CapturedFrame> {
     if (settings.multiMonitorMode === "primary_monitor") return this.provider.capturePrimaryScreen();
     return this.provider.captureActiveScreen(activeWindow);
   }

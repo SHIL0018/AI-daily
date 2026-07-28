@@ -19,7 +19,7 @@ import { IdleDetector } from "./scheduler/IdleDetector";
 import { RecordScheduler } from "./scheduler/RecordScheduler";
 import { SyncQueue } from "./sync/SyncQueue";
 import { SyncService } from "./sync/SyncService";
-import { errorMessage, logger } from "./logs/logger";
+import { configureLogger, errorMessage, logger } from "./logs/logger";
 import { RuntimeBootstrap } from "./runtime/RuntimeBootstrap";
 
 let mainWindow: BrowserWindow | undefined;
@@ -69,10 +69,13 @@ function attachClosePrompt(window: BrowserWindow, scheduler?: RecordScheduler): 
 }
 
 app.whenReady().then(() => {
+  configureLogger();
   const database = new LocalDatabase();
   const settingsRepository = new SettingsRepository(database);
   settingsRepository.seedDefaults();
   const records = new ActivityRecordRepository(database);
+  const recoveredUploads = records.recoverInterruptedUploads();
+  if (recoveredUploads > 0) logger.warn("Recovered interrupted uploads", { count: recoveredUploads });
   const sessions = new SessionRepository(database);
   const privacy = new PrivacyService();
   const capture = new CaptureService(new ElectronCaptureProvider());

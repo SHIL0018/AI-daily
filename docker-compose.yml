@@ -9,6 +9,12 @@ services:
       POSTGRES_PASSWORD: ${APP_DATABASE_PASSWORD:-change-me-db-password}
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U activitydaily -d activity_daily"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   app:
     build: .
@@ -22,7 +28,10 @@ services:
       APP_DATABASE_USERNAME: activitydaily
       APP_DATABASE_PASSWORD: ${APP_DATABASE_PASSWORD:-change-me-db-password}
       APP_DATABASE_DRIVER: org.postgresql.Driver
+      SPRING_PROFILES_ACTIVE: prod
+      APP_REGISTRATION_ENABLED: ${APP_REGISTRATION_ENABLED:-false}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"

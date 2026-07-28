@@ -15,9 +15,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -30,15 +27,18 @@ public class AiService {
     private final ActivityDailyProperties properties;
     private final ApiKeyService apiKeyService;
     private final ReportService reportService;
-    private final Executor aiTaskExecutor;
+    private final HttpClient httpClient;
+    private final AiJobCoordinator jobCoordinator;
 
-    public AiService(JdbcTemplate jdbc, ObjectMapper mapper, ActivityDailyProperties properties, ApiKeyService apiKeyService, ReportService reportService, @Qualifier("aiTaskExecutor") Executor aiTaskExecutor) {
+    public AiService(JdbcTemplate jdbc, ObjectMapper mapper, ActivityDailyProperties properties, ApiKeyService apiKeyService,
+                     ReportService reportService, HttpClient httpClient, AiJobCoordinator jobCoordinator) {
         this.jdbc = jdbc;
         this.mapper = mapper;
         this.properties = properties;
         this.apiKeyService = apiKeyService;
         this.reportService = reportService;
-        this.aiTaskExecutor = aiTaskExecutor;
+        this.httpClient = httpClient;
+        this.jobCoordinator = jobCoordinator;
     }
 
     @Transactional
@@ -58,8 +58,16 @@ public class AiService {
         }
         Map<String, Object> payload = reportService.buildAiPayload(userId, dateText);
         String inputHash = TextUtil.sha256(JsonUtil.write(mapper, payload));
+        var active = jdbc.queryForList("""
+                SELECT id, status FROM ai_analysis_jobs
+                WHERE user_id=? AND analysis_type='daily' AND report_date=? AND input_hash=? AND status IN ('pending','running')
+                ORDER BY created_at DESC
+                """, userId, dateText, inputHash);
+        if (!active.isEmpty()) {
+            return Map.of("job_id", active.get(0).get("id"), "status", active.get(0).get("status"), "cached", false);
+        }
         if (!request.forceRegenerate()) {
-            var cached = jdbc.queryForList("SELECT id, status FROM ai_analysis_jobs WHERE user_id=? AND analysis_type='daily' AND input_hash=? AND status IN ('succeeded','fallback') ORDER BY finished_at DESC", userId, inputHash);
+            var cached = jdbc.queryForList("SELECT id, status FROM ai_analysis_jobs WHERE user_id=? AND analysis_type='daily' AND input_hash=? AND status='succeeded' ORDER BY finished_at DESC", userId, inputHash);
             if (!cached.isEmpty()) return Map.of("job_id", cached.get(0).get("id"), "status", cached.get(0).get("status"), "cached", true);
         }
         reportService.getOrGenerate(userId, dateText, false);
@@ -71,12 +79,15 @@ public class AiService {
                 VALUES (?, ?, ?, 'daily', ?, 'pending', ?, ?, ?, 'daily-v2', ?, ?, ?)
                 """, jobId, userId, reportId, dateText, mode, model, inputHash, JsonUtil.write(mapper, payload), TimeUtil.nowTs(), TimeUtil.nowTs());
         jdbc.update("UPDATE daily_reports SET ai_analysis_status='pending', ai_analysis_job_id=?, updated_at=? WHERE user_id=? AND report_date=?", jobId, TimeUtil.nowTs(), userId, dateText);
-        CompletableFuture.runAsync(() -> runJob(jobId), aiTaskExecutor);
+        jobCoordinator.scheduleAfterCommit(jobId);
         return Map.of("job_id", jobId, "status", "pending", "cached", false);
     }
 
     public Map<String, Object> getJob(String userId, String jobId) {
-        var rows = jdbc.queryForList("SELECT * FROM ai_analysis_jobs WHERE id=? AND user_id=?", jobId, userId);
+        var rows = jdbc.queryForList("""
+                SELECT id, status, model_provider, model_name, error_code, error_message, created_at, finished_at
+                FROM ai_analysis_jobs WHERE id=? AND user_id=?
+                """, jobId, userId);
         if (rows.isEmpty()) throw new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "job not found");
         Map<String, Object> row = rows.get(0);
         Map<String, Object> result = new LinkedHashMap<>();
@@ -84,7 +95,6 @@ public class AiService {
         result.put("status", row.get("status"));
         result.put("model_provider", row.get("model_provider"));
         result.put("model_name", row.get("model_name"));
-        result.put("analysis_result", JsonUtil.readMap(mapper, string(row.get("analysis_result"))));
         result.put("error_code", row.get("error_code"));
         result.put("error_message", row.get("error_message"));
         result.put("created_at", row.get("created_at"));
@@ -112,9 +122,13 @@ public class AiService {
         String errorCode = null;
         String errorMessage = null;
         try {
-            CallResult callResult = callDeepSeek(payload, string(job.get("model_name")), apiKeyService.getPlainKey(string(job.get("user_id"))));
+            String apiKey = apiKeyService.getPlainKey(string(job.get("user_id")));
+            if (apiKey.isBlank()) throw new ApiKeyUnavailableException();
+            CallResult callResult = callDeepSeek(payload, string(job.get("model_name")), apiKey);
             result = callResult.result();
             usage = callResult.usage();
+        } catch (ApiKeyUnavailableException ex) {
+            throw ex;
         } catch (Exception ex) {
             status = "fallback";
             errorCode = "DEEPSEEK_UNAVAILABLE";
@@ -134,11 +148,13 @@ public class AiService {
     }
 
     private void markJobFailed(String jobId, Exception ex) {
+        String errorCode = ex instanceof ApiKeyUnavailableException ? "API_KEY_INVALID" : "JOB_FAILED";
         jdbc.update("""
                 UPDATE ai_analysis_jobs
-                SET status='failed', error_code='JOB_FAILED', error_message=?, finished_at=?, updated_at=?
+                SET status='failed', error_code=?, error_message=?, finished_at=?, updated_at=?
                 WHERE id=? AND status IN ('pending','running')
-                """, ex.getMessage(), TimeUtil.nowTs(), TimeUtil.nowTs(), jobId);
+                """, errorCode, ex.getMessage(), TimeUtil.nowTs(), TimeUtil.nowTs(), jobId);
+        jdbc.update("UPDATE daily_reports SET ai_analysis_status='failed', updated_at=? WHERE ai_analysis_job_id=?", TimeUtil.nowTs(), jobId);
     }
 
     private CallResult callDeepSeek(Map<String, Object> payload, String modelName, String apiKey) throws Exception {
@@ -199,7 +215,6 @@ public class AiService {
         Exception last = null;
         for (int i = 0; i <= properties.getDeepseekMaxRetries(); i++) {
             try {
-                HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(properties.getDeepseekTimeoutSeconds())).build();
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(properties.getDeepseekBaseUrl().replaceAll("/$", "") + "/chat/completions"))
                         .timeout(Duration.ofSeconds(properties.getDeepseekTimeoutSeconds()))
@@ -207,8 +222,11 @@ public class AiService {
                         .header("Content-Type", "application/json")
                         .POST(HttpRequest.BodyPublishers.ofString(JsonUtil.write(mapper, body)))
                         .build();
-                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-                if (response.statusCode() >= 400) throw new IllegalStateException(response.body());
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() >= 400) {
+                    boolean retryable = response.statusCode() == 429 || response.statusCode() >= 500;
+                    throw new DeepSeekHttpException(response.statusCode(), response.body(), retryable);
+                }
                 Map<String, Object> data = mapper.readValue(response.body(), new TypeReference<>() {});
                 List<?> choices = (List<?>) data.get("choices");
                 Map<?, ?> first = (Map<?, ?>) choices.get(0);
@@ -223,6 +241,13 @@ public class AiService {
                 return new CallResult(result, usage);
             } catch (Exception ex) {
                 last = ex;
+                if (!isRetryable(ex) || i >= properties.getDeepseekMaxRetries()) break;
+                try {
+                    Thread.sleep(Math.min(4000L, 500L * (1L << i)));
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw interrupted;
+                }
             }
         }
         throw last == null ? new IllegalStateException("DeepSeek unavailable") : last;
@@ -274,5 +299,23 @@ public class AiService {
 
     private String string(Object value) { return value == null ? "" : String.valueOf(value); }
     private int intValue(Object value) { return value instanceof Number number ? number.intValue() : 0; }
+    private boolean isRetryable(Exception error) {
+        return !(error instanceof DeepSeekHttpException httpError) || httpError.retryable();
+    }
     private record CallResult(Map<String, Object> result, Map<String, Integer> usage) {}
+    private static final class DeepSeekHttpException extends IllegalStateException {
+        private final boolean retryable;
+
+        private DeepSeekHttpException(int status, String body, boolean retryable) {
+            super("DeepSeek HTTP " + status + ": " + body);
+            this.retryable = retryable;
+        }
+
+        private boolean retryable() { return retryable; }
+    }
+    private static final class ApiKeyUnavailableException extends IllegalStateException {
+        private ApiKeyUnavailableException() {
+            super("API Key 无法解密或已失效，请重新配置");
+        }
+    }
 }

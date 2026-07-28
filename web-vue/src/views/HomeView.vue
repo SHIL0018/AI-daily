@@ -7,6 +7,7 @@ import { init, use, type EChartsType } from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 import { CalendarDays, RefreshCw, Sparkles } from "lucide-vue-next";
 import { apiRequest, formatDuration } from "../api";
+import { getApiKeyStatus } from "../apiKeyStatus";
 import { useDateStore } from "../stores/date";
 
 type TimelineItem = { start_time: string; end_time: string; category: string; summary: string; duration_seconds: number; app_name?: string };
@@ -18,6 +19,7 @@ type Report = {
   active_seconds: number;
   idle_seconds: number;
   private_seconds: number;
+  is_stale?: boolean;
   category_stats: Array<{ category: string; duration_seconds: number; percentage: number }>;
   app_stats: Array<{ app_name: string; duration_seconds: number; percentage: number }>;
   timeline: TimelineItem[];
@@ -39,6 +41,10 @@ use([PieChart, TooltipComponent, CanvasRenderer]);
 let chart: EChartsType | null = null;
 let dateTimer: number | undefined;
 let aiPollTimer: number | undefined;
+let reportPollTimer: number | undefined;
+let loadController: AbortController | undefined;
+let aiPollController: AbortController | undefined;
+let stalePollAttempt = 0;
 
 const palette = ["#26735b", "#3157c8", "#d68a2f", "#d8664f", "#7563b5", "#168294", "#7b857f"];
 const topApps = computed(() => report.value?.app_stats?.slice(0, 6) || []);
@@ -93,19 +99,44 @@ function categoryColor(category: string): string {
 }
 
 async function load(options: { quiet?: boolean } = {}) {
+  loadController?.abort();
+  const controller = new AbortController();
+  loadController = controller;
+  const requestedDate = date.value;
   loading.value = !options.quiet;
   if (!options.quiet) message.value = "";
   try {
-    report.value = await apiRequest<Report>(`/api/v1/daily-reports/${date.value}?include_ai_analysis=true`);
-    const key = await apiRequest<{ configured: boolean }>("/api/v1/api-keys/deepseek");
+    const [nextReport, key] = await Promise.all([
+      apiRequest<Report>(`/api/v1/daily-reports/${requestedDate}?include_ai_analysis=true`, { signal: controller.signal }),
+      getApiKeyStatus()
+    ]);
+    if (controller.signal.aborted || requestedDate !== date.value) return;
+    report.value = nextReport;
     apiKeyConfigured.value = key.configured;
     await nextTick();
     renderChart();
+    scheduleReportRefresh(Boolean(nextReport.is_stale));
   } catch (err) {
+    if (controller.signal.aborted) return;
     message.value = err instanceof Error ? err.message : "加载失败";
   } finally {
-    loading.value = false;
+    if (loadController === controller) {
+      loadController = undefined;
+      loading.value = false;
+    }
   }
+}
+
+function scheduleReportRefresh(stale: boolean) {
+  window.clearTimeout(reportPollTimer);
+  if (!stale) {
+    stalePollAttempt = 0;
+    return;
+  }
+  const delays = [1500, 2500, 4000, 6000, 10000, 15000];
+  const delay = delays[Math.min(stalePollAttempt, delays.length - 1)];
+  stalePollAttempt += 1;
+  reportPollTimer = window.setTimeout(() => void load({ quiet: true }), delay);
 }
 
 async function runAi() {
@@ -121,17 +152,20 @@ async function runAi() {
       method: "POST",
       body: JSON.stringify({ analysis_type: "daily", mode: "standard", force_regenerate: true })
     });
-    await pollAiJob(job.job_id);
+    await pollAiJob(job.job_id, 0);
   } catch (err) {
     message.value = err instanceof Error ? err.message : "AI 分析失败";
     aiRunning.value = false;
   }
 }
 
-async function pollAiJob(jobId: string) {
+async function pollAiJob(jobId: string, attempt: number) {
   window.clearTimeout(aiPollTimer);
+  aiPollController?.abort();
+  const controller = new AbortController();
+  aiPollController = controller;
   try {
-    const job = await apiRequest<AiJob & { error_message?: string }>(`/api/v1/ai-analysis-jobs/${jobId}`);
+    const job = await apiRequest<AiJob & { error_message?: string }>(`/api/v1/ai-analysis-jobs/${jobId}`, { signal: controller.signal });
     if (["succeeded", "fallback", "failed"].includes(job.status)) {
       message.value = job.status === "failed" ? (job.error_message || "AI 分析失败") : "AI 分析已完成";
       aiRunning.value = false;
@@ -139,8 +173,10 @@ async function pollAiJob(jobId: string) {
       return;
     }
     message.value = "AI 分析中...";
-    aiPollTimer = window.setTimeout(() => pollAiJob(jobId), 1600);
+    const delay = Math.min(10000, Math.round(1600 * Math.pow(1.45, attempt)));
+    aiPollTimer = window.setTimeout(() => void pollAiJob(jobId, attempt + 1), delay);
   } catch (err) {
+    if (controller.signal.aborted) return;
     message.value = err instanceof Error ? err.message : "AI 分析状态查询失败";
     aiRunning.value = false;
   }
@@ -148,8 +184,7 @@ async function pollAiJob(jobId: string) {
 
 function renderChart() {
   if (!chartEl.value || !report.value) return;
-  chart?.dispose();
-  chart = init(chartEl.value);
+  if (!chart) chart = init(chartEl.value);
   chart.setOption({
     tooltip: { trigger: "item", borderWidth: 0, backgroundColor: "#17231e", textStyle: { color: "#fff" } },
     color: palette,
@@ -169,6 +204,9 @@ function renderChart() {
 function resizeChart() { chart?.resize(); }
 
 watch(date, () => {
+  loadController?.abort();
+  window.clearTimeout(reportPollTimer);
+  stalePollAttempt = 0;
   window.clearTimeout(dateTimer);
   dateTimer = window.setTimeout(() => load(), 250);
 });
@@ -180,6 +218,9 @@ onMounted(() => {
 onUnmounted(() => {
   window.clearTimeout(dateTimer);
   window.clearTimeout(aiPollTimer);
+  window.clearTimeout(reportPollTimer);
+  loadController?.abort();
+  aiPollController?.abort();
   window.removeEventListener("resize", resizeChart);
   chart?.dispose();
 });
@@ -200,6 +241,7 @@ onUnmounted(() => {
     </section>
 
     <p v-if="message" class="notice" role="status">{{ message }}</p>
+    <p v-if="report?.is_stale" class="notice" role="status">新活动已上传，日报正在更新...</p>
 
     <template v-if="report">
       <section class="daily-summary surface">

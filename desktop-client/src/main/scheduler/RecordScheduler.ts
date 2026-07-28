@@ -36,6 +36,11 @@ export class RecordScheduler {
   private inferenceCount = 0;
   private lastInferenceMs?: number;
   private inferenceInProgress = false;
+  private runVersion = 0;
+  private captureTask?: Promise<void>;
+  private captureAbortController?: AbortController;
+  private inferenceRunVersion?: number;
+  private readonly listeners = new Set<() => void>();
 
   constructor(
     private readonly settingsRepository: SettingsRepository,
@@ -51,40 +56,51 @@ export class RecordScheduler {
 
   async start(): Promise<RecorderStatus> {
     if (this.state === "Recording") return this.status();
+    if (this.state === "Paused" && this.sessionId) return this.resume();
     logger.info("Recorder start requested");
+    const version = this.beginRun("Recording");
+    await this.waitForPreviousCapture();
+    if (!this.isCurrentRun(version)) return this.status();
     const settings = this.settingsRepository.getAll();
     const deviceId = this.settingsRepository.get<string>("deviceId", "local-device-unregistered");
+    if (this.sessionId) this.sessions.close(this.sessionId);
     this.sessionId = this.sessions.create(deviceId);
+    this.lastCaptureAt = undefined;
     this.lastError = undefined;
     this.inferenceTotalMs = 0;
     this.inferenceCount = 0;
     this.lastInferenceMs = undefined;
     this.inferenceInProgress = false;
+    this.notifyChanged();
     logger.info("Recorder session created", { sessionId: this.sessionId, deviceId, captureIntervalSeconds: settings.captureIntervalSeconds, modelProvider: settings.modelProvider, modelBaseUrl: settings.modelBaseUrl, modelName: settings.modelName });
-    this.state = "Recording";
-    await this.captureOnce();
-    if ((this.state as RecorderState) === "Error") return this.status();
-    this.timer = setInterval(() => void this.captureOnce(), settings.captureIntervalSeconds * 1000);
+    await this.runCaptureCycle(version);
     return this.status();
   }
 
   async pause(): Promise<RecorderStatus> {
     logger.info("Recorder pause requested", { state: this.state, sessionId: this.sessionId });
-    if (this.state === "Recording") this.state = "Paused";
-    if (this.timer) clearInterval(this.timer);
-    this.timer = undefined;
+    if (this.state === "Recording") this.beginRun("Paused");
+    this.notifyChanged();
     return this.status();
   }
 
-  resume(): Promise<RecorderStatus> {
-    return this.start();
+  async resume(): Promise<RecorderStatus> {
+    if (this.state !== "Paused" || !this.sessionId) return this.start();
+    logger.info("Recorder resume requested", { sessionId: this.sessionId });
+    const version = this.beginRun("Recording");
+    this.lastCaptureAt = undefined;
+    this.lastError = undefined;
+    this.notifyChanged();
+    await this.waitForPreviousCapture();
+    if (this.isCurrentRun(version)) await this.runCaptureCycle(version);
+    return this.status();
   }
 
   refreshSchedule(): void {
     if (this.state !== "Recording") return;
     const settings = this.settingsRepository.getAll();
-    if (this.timer) clearInterval(this.timer);
-    this.timer = setInterval(() => void this.captureOnce(), settings.captureIntervalSeconds * 1000);
+    this.clearTimer();
+    this.scheduleNext(this.runVersion, settings.captureIntervalSeconds);
     logger.info("Recorder schedule refreshed", { captureIntervalSeconds: settings.captureIntervalSeconds });
   }
 
@@ -92,15 +108,16 @@ export class RecordScheduler {
     return this.state !== "Recording";
   }
   async stop(): Promise<RecorderStatus> {
-    if (this.timer) clearInterval(this.timer);
-    this.timer = undefined;
+    this.beginRun("Stopped");
     if (this.sessionId) this.sessions.close(this.sessionId);
-    this.state = "Stopped";
+    this.sessionId = undefined;
+    this.lastCaptureAt = undefined;
+    this.notifyChanged();
     return this.status();
   }
 
   async status(): Promise<RecorderStatus> {
-    const lastRecord = this.records.getLast();
+    const snapshot = this.records.dashboardSnapshot();
     return {
       state: this.state,
       sessionId: this.sessionId,
@@ -111,11 +128,16 @@ export class RecordScheduler {
         lastMs: this.lastInferenceMs,
         inProgress: this.inferenceInProgress
       },
-      sync: this.syncService.status(),
-      todaySeconds: this.records.todaySeconds(),
-      lastRecord,
+      sync: this.syncService.status(snapshot.uploadCounts),
+      todaySeconds: snapshot.todaySeconds,
+      lastRecord: snapshot.lastRecord,
       errorMessage: this.lastError
     };
+  }
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   async healthCheck(): Promise<ModelHealth> {
@@ -124,6 +146,7 @@ export class RecordScheduler {
     this.modelHealth = await this.modelAdapterFactory(settings).healthCheck();
     this.modelHealthCheckedAt = Date.now();
     logger.info("Model health check result", this.modelHealth);
+    this.notifyChanged();
     return this.modelHealth;
   }
 
@@ -135,8 +158,22 @@ export class RecordScheduler {
     return this.modelHealth;
   }
 
-  private async captureOnce(): Promise<void> {
-    if (this.state !== "Recording" || !this.sessionId) return;
+  private async runCaptureCycle(version: number): Promise<void> {
+    if (!this.isCurrentRun(version)) return;
+    const task = this.captureOnce(version);
+    this.captureTask = task;
+    try {
+      await task;
+    } finally {
+      if (this.captureTask === task) this.captureTask = undefined;
+      if (this.isCurrentRun(version)) this.scheduleNext(version);
+    }
+  }
+
+  private async captureOnce(version: number): Promise<void> {
+    if (!this.isCurrentRun(version) || !this.sessionId) return;
+    const abortController = new AbortController();
+    this.captureAbortController = abortController;
     const settings = this.settingsRepository.getAll();
     const idle = this.idleDetector.getState(settings.idleThresholdSeconds);
     const now = new Date();
@@ -145,6 +182,7 @@ export class RecordScheduler {
     try {
       logger.debug("Capture tick started", { sessionId: this.sessionId, start: start.toISOString(), end: now.toISOString(), idle: idle.isIdle });
       const active = await this.activeWindow.getActiveWindow();
+      if (!this.isCurrentRun(version)) return;
       logger.debug("Active window captured", { appName: active.appName, processName: active.processName, hasWindowTitle: Boolean(active.windowTitle), displayId: active.displayId });
       const privacyDecision = this.privacy.shouldSkipCapture(active, settings);
       logger.debug("Privacy decision", { action: privacyDecision.action, reason: privacyDecision.reason });
@@ -159,7 +197,8 @@ export class RecordScheduler {
       } else {
         logger.debug("Screen capture requested", { mode: settings.multiMonitorMode });
         const frame = await this.capture.capture(settings, active);
-        logger.debug("Screen capture completed", { width: frame.width, height: frame.height, source: frame.source, hasImage: Boolean(frame.imageBase64) });
+        if (!this.isCurrentRun(version)) return;
+        logger.debug("Screen capture completed", { width: frame.width, height: frame.height, source: frame.source, hasHash: Boolean(frame.imageHash) });
         const previous = this.records.getLast();
         const reused = this.reuseVisualSummaryIfUnchanged(frame.imageHash, active);
         if (reused) {
@@ -178,20 +217,27 @@ export class RecordScheduler {
         } else {
           const adapter = this.modelAdapterFactory(settings);
           this.modelHealth = await this.cachedHealthCheck(settings);
+          if (!this.isCurrentRun(version)) return;
           logger.debug("Model health before summarize", this.modelHealth);
           logger.debug("Model summarize requested", { provider: settings.modelProvider, modelName: settings.modelName });
+          const encodedImage = frame.encodeForModel();
           const inferenceStartedAt = Date.now();
           let inferenceDurationMs: number | undefined;
           let summary: ModelSummary;
           this.inferenceInProgress = true;
+          this.inferenceRunVersion = version;
+          this.notifyChanged();
           try {
             summary = await adapter.summarize({
               requestId: crypto.randomUUID(),
               timestamp: now.toISOString(),
               appName: active.appName,
               windowTitle: this.privacy.sanitizeWindowTitle(active.windowTitle),
-              imageBase64: frame.imageBase64
+              imageBase64: encodedImage.imageBase64,
+              imageMimeType: encodedImage.imageMimeType,
+              signal: abortController.signal
             });
+            if (!this.isCurrentRun(version)) return;
             inferenceDurationMs = Math.max(0, Date.now() - inferenceStartedAt);
             this.lastInferenceMs = inferenceDurationMs;
             this.inferenceTotalMs += inferenceDurationMs;
@@ -202,7 +248,11 @@ export class RecordScheduler {
               averageMs: Math.round(this.inferenceTotalMs / this.inferenceCount)
             });
           } finally {
-            this.inferenceInProgress = false;
+            if (this.inferenceRunVersion === version) {
+              this.inferenceInProgress = false;
+              this.inferenceRunVersion = undefined;
+              this.notifyChanged();
+            }
           }
           const usableSummary = this.preventRepeatedSummary(summary, previous, active);
           logger.debug("Model summarize completed", { category: usableSummary.category, confidence: usableSummary.confidence, sensitive: usableSummary.sensitive, adjusted: usableSummary !== summary });
@@ -219,16 +269,64 @@ export class RecordScheduler {
           this.rememberVisualSummary(frame.imageHash, active, record);
         }
       }
+      if (!this.isCurrentRun(version)) return;
       this.records.insert(record);
       logger.info("Activity record inserted", { id: record.id, category: record.category, durationSeconds: record.durationSeconds, uploadStatus: record.uploadStatus });
       this.syncService.requestSyncSoon();
+      this.notifyChanged();
     } catch (error) {
+      if (!this.isCurrentRun(version) || abortController.signal.aborted) return;
       this.lastError = errorMessage(error);
       logger.error("Recorder capture failed", { sessionId: this.sessionId, error: this.lastError });
       this.state = "Error";
-      if (this.timer) clearInterval(this.timer);
-      this.timer = undefined;
+      this.invalidateRun();
+      this.notifyChanged();
+    } finally {
+      if (this.captureAbortController === abortController) this.captureAbortController = undefined;
     }
+  }
+
+  private beginRun(state: RecorderState): number {
+    this.invalidateRun();
+    this.state = state;
+    return this.runVersion;
+  }
+
+  private invalidateRun(): void {
+    this.runVersion += 1;
+    this.clearTimer();
+    this.captureAbortController?.abort();
+    this.captureAbortController = undefined;
+    this.inferenceInProgress = false;
+    this.inferenceRunVersion = undefined;
+  }
+
+  private clearTimer(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = undefined;
+  }
+
+  private isCurrentRun(version: number): boolean {
+    return version === this.runVersion && this.state === "Recording";
+  }
+
+  private scheduleNext(version: number, intervalSeconds?: number): void {
+    if (!this.isCurrentRun(version)) return;
+    this.clearTimer();
+    const delaySeconds = intervalSeconds ?? this.settingsRepository.getAll().captureIntervalSeconds;
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      void this.runCaptureCycle(version);
+    }, delaySeconds * 1000);
+  }
+
+  private async waitForPreviousCapture(): Promise<void> {
+    const previous = this.captureTask;
+    if (previous) await previous.catch(() => undefined);
+  }
+
+  private notifyChanged(): void {
+    this.listeners.forEach((listener) => listener());
   }
 
   private preventRepeatedSummary(summary: ModelSummary, previous: ActivityRecord | undefined, active: { appName?: string; windowTitle?: string; processName?: string }): ModelSummary {

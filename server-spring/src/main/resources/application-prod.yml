@@ -1,0 +1,9 @@
+activity-daily:
+  registration-enabled: ${APP_REGISTRATION_ENABLED:false}
+  allowed-origins: ${APP_ALLOWED_ORIGINS:}
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

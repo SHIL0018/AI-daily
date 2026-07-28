@@ -83,6 +83,26 @@ export class ActivityRecordRepository {
     return rows.map(rowToRecord);
   }
 
+  listPage(page = 1, pageSize = 50, dateText = shanghaiDate()): import("../../shared/types").ActivityRecordPage {
+    const safePage = Math.max(1, Math.trunc(page));
+    const safePageSize = Math.min(100, Math.max(1, Math.trunc(pageSize)));
+    const { start, end } = shanghaiDateBounds(dateText);
+    const totalRow = this.database.db.prepare("SELECT COUNT(*) AS count FROM local_activity_records WHERE start_time >= ? AND start_time < ?").get(start, end) as { count: number };
+    const rows = this.database.db.prepare(`
+      SELECT * FROM local_activity_records
+      WHERE start_time >= ? AND start_time < ?
+      ORDER BY start_time DESC LIMIT ? OFFSET ?
+    `).all(start, end, safePageSize, (safePage - 1) * safePageSize);
+    const totalItems = totalRow.count;
+    return {
+      items: rows.map(rowToRecord),
+      page: safePage,
+      pageSize: safePageSize,
+      totalItems,
+      totalPages: Math.max(1, Math.ceil(totalItems / safePageSize))
+    };
+  }
+
   listForSync(limit: number, maxRetryCount: number): ActivityRecord[] {
     const rows = this.database.db.prepare(`
       SELECT * FROM local_activity_records
@@ -115,6 +135,40 @@ export class ActivityRecordRepository {
     return counts;
   }
 
+  dashboardSnapshot(): { lastRecord?: ActivityRecord; todaySeconds: number; uploadCounts: Record<UploadStatus, number> } {
+    const { start, end } = shanghaiDateBounds(shanghaiDate());
+    const row = this.database.db.prepare(`
+      SELECT latest.*,
+             totals.today_seconds,
+             totals.pending_count,
+             totals.uploading_count,
+             totals.synced_count,
+             totals.failed_count,
+             totals.ignored_count
+      FROM (
+        SELECT COALESCE(SUM(CASE WHEN start_time >= ? AND start_time < ? THEN duration_seconds ELSE 0 END), 0) AS today_seconds,
+               SUM(CASE WHEN upload_status='pending' THEN 1 ELSE 0 END) AS pending_count,
+               SUM(CASE WHEN upload_status='uploading' THEN 1 ELSE 0 END) AS uploading_count,
+               SUM(CASE WHEN upload_status='synced' THEN 1 ELSE 0 END) AS synced_count,
+               SUM(CASE WHEN upload_status='failed' THEN 1 ELSE 0 END) AS failed_count,
+               SUM(CASE WHEN upload_status='ignored' THEN 1 ELSE 0 END) AS ignored_count
+        FROM local_activity_records
+      ) totals
+      LEFT JOIN (SELECT * FROM local_activity_records ORDER BY start_time DESC LIMIT 1) latest ON 1=1
+    `).get(start, end) as any;
+    return {
+      lastRecord: row?.id ? rowToRecord(row) : undefined,
+      todaySeconds: Number(row?.today_seconds ?? 0),
+      uploadCounts: {
+        pending: Number(row?.pending_count ?? 0),
+        uploading: Number(row?.uploading_count ?? 0),
+        synced: Number(row?.synced_count ?? 0),
+        failed: Number(row?.failed_count ?? 0),
+        ignored: Number(row?.ignored_count ?? 0)
+      }
+    };
+  }
+
   markUploading(records: ActivityRecord[]): void {
     const stmt = this.database.db.prepare("UPDATE local_activity_records SET upload_status='uploading', updated_at=? WHERE id=?");
     const now = toShanghaiIso();
@@ -136,6 +190,23 @@ export class ActivityRecordRepository {
       toShanghaiIso(),
       localId
     );
+  }
+
+  restorePending(records: ActivityRecord[], error?: string): void {
+    if (!records.length) return;
+    const statement = this.database.db.prepare("UPDATE local_activity_records SET upload_status='pending', error_message=?, updated_at=? WHERE id=?");
+    const now = toShanghaiIso();
+    this.database.db.transaction(() => records.forEach((record) => statement.run(error ?? null, now, record.id)))();
+  }
+
+  recoverInterruptedUploads(): number {
+    const result = this.database.db.prepare("UPDATE local_activity_records SET upload_status='pending', error_message='上次同步被中断，已自动恢复', updated_at=? WHERE upload_status='uploading'").run(toShanghaiIso());
+    return result.changes;
+  }
+
+  retryFailed(): number {
+    const result = this.database.db.prepare("UPDATE local_activity_records SET upload_status='pending', retry_count=0, error_message=NULL, updated_at=? WHERE upload_status='failed'").run(toShanghaiIso());
+    return result.changes;
   }
 
   clear(): void {

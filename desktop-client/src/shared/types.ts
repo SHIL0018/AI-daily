@@ -56,6 +56,7 @@ export interface CaptureFrame {
   width: number;
   height: number;
   imageBase64?: string;
+  imageMimeType?: "image/jpeg" | "image/png";
   imageHash?: string;
   imageBuffer?: Buffer;
   source: "primary_monitor" | "active_monitor" | "all_monitors";
@@ -73,6 +74,8 @@ export interface ScreenSummaryInput {
   appName?: string;
   windowTitle?: string;
   imageBase64?: string;
+  imageMimeType?: "image/jpeg" | "image/png";
+  signal?: AbortSignal;
   previousSummary?: string;
   recentContext?: RecentActivity[];
 }
@@ -161,4 +164,17 @@ export interface SyncResult {
   accepted: number;
   duplicated: number;
   failed: number;
+}
+
+export interface ActivityRecordPage {
+  items: ActivityRecord[];
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+}
+
+export interface DashboardUpdate {
+  status: RecorderStatus;
+  recentRecords: ActivityRecord[];
 }

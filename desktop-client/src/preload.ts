@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { ClientSettings } from "./shared/types";
+import type { ClientSettings, DashboardUpdate } from "./shared/types";
 
 const IPC = {
   recorderStart: "recorder:start",
@@ -9,10 +9,13 @@ const IPC = {
   recorderStatus: "recorder:status",
   modelHealth: "model:health",
   syncRun: "sync:run",
+  syncRetryFailed: "sync:retry-failed",
   settingsGet: "settings:get",
   settingsUpdate: "settings:update",
   recordsList: "records:list",
+  recordsPage: "records:page",
   recordsClear: "records:clear",
+  dashboardChanged: "dashboard:changed",
   authLogin: "auth:login",
   authStatus: "auth:status",
   authLogout: "auth:logout",
@@ -34,7 +37,8 @@ const api = {
     health: () => ipcRenderer.invoke(IPC.modelHealth)
   },
   sync: {
-    run: () => ipcRenderer.invoke(IPC.syncRun)
+    run: () => ipcRenderer.invoke(IPC.syncRun),
+    retryFailed: () => ipcRenderer.invoke(IPC.syncRetryFailed)
   },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),
@@ -42,7 +46,15 @@ const api = {
   },
   records: {
     list: (limit?: number) => ipcRenderer.invoke(IPC.recordsList, limit),
+    page: (page?: number, pageSize?: number) => ipcRenderer.invoke(IPC.recordsPage, page, pageSize),
     clear: () => ipcRenderer.invoke(IPC.recordsClear)
+  },
+  dashboard: {
+    subscribe: (listener: (update: DashboardUpdate) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, update: DashboardUpdate) => listener(update);
+      ipcRenderer.on(IPC.dashboardChanged, handler);
+      return () => ipcRenderer.removeListener(IPC.dashboardChanged, handler);
+    }
   },
   auth: {
     login: (email: string, password: string) => ipcRenderer.invoke(IPC.authLogin, email, password),

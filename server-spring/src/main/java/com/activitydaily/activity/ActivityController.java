@@ -26,7 +26,7 @@ public class ActivityController {
 
     @PostMapping("/batch")
     public ApiResponse<Map<String, Object>> upload(@Valid @RequestBody ActivityBatch request, Authentication auth) {
-        return ApiResponse.ok(service.upload(currentUser.requireUserId(auth), request));
+        return ApiResponse.ok(service.upload(currentUser.requireUserId(auth), request).legacyResponse());
     }
 
     @GetMapping
@@ -34,8 +34,12 @@ public class ActivityController {
                                                  @RequestParam(defaultValue = "1") int page,
                                                  @RequestParam(name = "page_size", defaultValue = "100") int pageSize,
                                                  @RequestParam(required = false) String category,
+                                                 @RequestParam(name = "app_name", required = false) String appName,
+                                                 @RequestParam(name = "q", required = false) String keyword,
+                                                 @RequestParam(defaultValue = "start_time") String sort,
+                                                 @RequestParam(defaultValue = "desc") String direction,
                                                  Authentication auth) {
-        return ApiResponse.ok(service.list(currentUser.requireUserId(auth), date, page, pageSize, category));
+        return ApiResponse.ok(service.list(currentUser.requireUserId(auth), date, page, pageSize, category, appName, keyword, sort, direction));
     }
 
     @PatchMapping("/{recordId}")
@@ -49,7 +53,7 @@ public class ActivityController {
         return ApiResponse.ok(Map.of());
     }
 
-    public record ActivityBatch(@NotBlank @JsonProperty("device_id") String deviceId, @Size(max = 100) List<@Valid ActivityRecordIn> records) {}
+    public record ActivityBatch(@NotBlank @JsonProperty("device_id") String deviceId, @Size(max = 100) List<ActivityRecordIn> records) {}
     public record ActivityRecordIn(
             @NotBlank @JsonProperty("client_record_id") String clientRecordId,
             @NotBlank @JsonProperty("session_id") String sessionId,

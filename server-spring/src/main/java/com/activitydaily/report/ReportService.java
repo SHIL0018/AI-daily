@@ -6,6 +6,7 @@ import com.activitydaily.util.TextUtil;
 import com.activitydaily.util.TimeUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.*;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,25 +17,43 @@ public class ReportService {
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
     private final DeviceService deviceService;
+    private final ObjectProvider<ReportRefreshCoordinator> refreshCoordinator;
 
-    public ReportService(JdbcTemplate jdbc, ObjectMapper mapper, DeviceService deviceService) {
+    public ReportService(JdbcTemplate jdbc, ObjectMapper mapper, DeviceService deviceService,
+                         ObjectProvider<ReportRefreshCoordinator> refreshCoordinator) {
         this.jdbc = jdbc;
         this.mapper = mapper;
         this.deviceService = deviceService;
+        this.refreshCoordinator = refreshCoordinator;
     }
 
     @Transactional
     public void markStale(String userId, String dateText) {
-        jdbc.update("UPDATE daily_reports SET is_stale=TRUE, ai_analysis_status=CASE WHEN ai_analysis_status='none' THEN 'none' ELSE 'stale' END, updated_at=? WHERE user_id=? AND report_date=?",
-                TimeUtil.nowTs(), userId, dateText);
+        markStale(userId, List.of(dateText));
+    }
+
+    @Transactional
+    public void markStale(String userId, Collection<String> dates) {
+        if (dates == null || dates.isEmpty()) return;
+        List<String> distinctDates = dates.stream().filter(Objects::nonNull).distinct().toList();
+        if (distinctDates.isEmpty()) return;
+        String placeholders = String.join(",", Collections.nCopies(distinctDates.size(), "?"));
+        List<Object> params = new ArrayList<>();
+        params.add(TimeUtil.nowTs());
+        params.add(userId);
+        params.addAll(distinctDates);
+        jdbc.update("UPDATE daily_reports SET is_stale=TRUE, ai_analysis_status=CASE WHEN ai_analysis_status='none' THEN 'none' ELSE 'stale' END, updated_at=? WHERE user_id=? AND report_date IN (" + placeholders + ")", params.toArray());
     }
 
     public Map<String, Object> getOrGenerate(String userId, String dateText, boolean includeAi) {
         deviceService.ensureActiveUser(userId);
         Map<String, Object> report = get(userId, dateText, includeAi);
-        if (report == null || Boolean.TRUE.equals(report.get("is_stale"))) {
+        if (report == null) {
             report = generate(userId, dateText, userTimezone(userId));
             if (includeAi) report = get(userId, dateText, true);
+        } else if (Boolean.TRUE.equals(report.get("is_stale"))) {
+            ReportRefreshCoordinator coordinator = refreshCoordinator.getIfAvailable();
+            if (coordinator != null) coordinator.ensureScheduled(userId, dateText);
         }
         return report == null ? Map.of() : report;
     }
@@ -122,6 +141,8 @@ public class ReportService {
     public void updateNote(String userId, String dateText, String note) {
         getOrGenerate(userId, dateText, false);
         jdbc.update("UPDATE daily_reports SET user_note=?, is_stale=TRUE, updated_at=? WHERE user_id=? AND report_date=?", TextUtil.redact(note), TimeUtil.nowTs(), userId, dateText);
+        ReportRefreshCoordinator coordinator = refreshCoordinator.getIfAvailable();
+        if (coordinator != null) coordinator.scheduleAfterCommit(userId, dateText);
     }
 
     public String exportJson(String userId, String dateText) {

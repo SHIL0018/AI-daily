@@ -14,6 +14,8 @@ public class ActivityDailyProperties {
     private String deepseekDeepModel;
     private int deepseekTimeoutSeconds;
     private int deepseekMaxRetries;
+    private int reportRefreshDelaySeconds = 10;
+    private boolean registrationEnabled = true;
     private List<String> allowedOrigins = List.of("*");
 
     public String getJwtSecret() { return jwtSecret; }
@@ -34,6 +36,10 @@ public class ActivityDailyProperties {
     public void setDeepseekTimeoutSeconds(int deepseekTimeoutSeconds) { this.deepseekTimeoutSeconds = deepseekTimeoutSeconds; }
     public int getDeepseekMaxRetries() { return deepseekMaxRetries; }
     public void setDeepseekMaxRetries(int deepseekMaxRetries) { this.deepseekMaxRetries = deepseekMaxRetries; }
+    public int getReportRefreshDelaySeconds() { return reportRefreshDelaySeconds; }
+    public void setReportRefreshDelaySeconds(int reportRefreshDelaySeconds) { this.reportRefreshDelaySeconds = Math.max(1, reportRefreshDelaySeconds); }
+    public boolean isRegistrationEnabled() { return registrationEnabled; }
+    public void setRegistrationEnabled(boolean registrationEnabled) { this.registrationEnabled = registrationEnabled; }
     public List<String> getAllowedOrigins() { return allowedOrigins; }
     public void setAllowedOrigins(List<String> allowedOrigins) { this.allowedOrigins = allowedOrigins == null || allowedOrigins.isEmpty() ? List.of("*") : allowedOrigins; }
 }

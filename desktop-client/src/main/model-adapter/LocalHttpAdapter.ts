@@ -23,14 +23,20 @@ export class LocalHttpAdapter implements ModelAdapter {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(input),
-        signal: AbortSignal.timeout(this.settings.modelTimeoutSeconds * 1000)
+        signal: requestSignal(input.signal, this.settings.modelTimeoutSeconds * 1000)
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       return this.parser.parse(input.requestId, JSON.stringify(data), input.appName, input.windowTitle);
-    } catch {
+    } catch (error) {
+      if (input.signal?.aborted) throw error;
       return this.parser.fallback(input.requestId, input.appName, input.windowTitle);
     }
   }
+}
+
+function requestSignal(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 

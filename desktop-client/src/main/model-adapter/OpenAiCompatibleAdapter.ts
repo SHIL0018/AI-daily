@@ -47,7 +47,7 @@ export class OpenAiCompatibleAdapter implements ModelAdapter {
         { type: "text", text: this.promptBuilder.build(input) }
       ];
       if (input.imageBase64) {
-        content.push({ type: "image_url", image_url: { url: this.toDataImageUrl(input.imageBase64) } });
+        content.push({ type: "image_url", image_url: { url: this.toDataImageUrl(input.imageBase64, input.imageMimeType) } });
       }
 
       const response = await fetch(this.endpoint("chat/completions"), {
@@ -62,12 +62,13 @@ export class OpenAiCompatibleAdapter implements ModelAdapter {
           max_tokens: 256,
           stream: false
         }),
-        signal: AbortSignal.timeout(this.settings.modelTimeoutSeconds * 1000)
+        signal: requestSignal(input.signal, this.settings.modelTimeoutSeconds * 1000)
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text().catch(() => "")}`);
       const data = (await response.json()) as OpenAiChatResponse;
       return this.parser.parse(input.requestId, this.extractText(data), input.appName, input.windowTitle);
     } catch (error) {
+      if (input.signal?.aborted) throw error;
       logger.error("OpenAI-compatible summarize failed", { endpoint: this.endpoint("chat/completions"), modelName: this.resolveConfiguredModelName(), error: errorMessage(error) });
       return this.parser.fallback(input.requestId, input.appName, input.windowTitle);
     }
@@ -111,7 +112,12 @@ export class OpenAiCompatibleAdapter implements ModelAdapter {
     return "";
   }
 
-  private toDataImageUrl(imageBase64: string): string {
-    return imageBase64.startsWith("data:") ? imageBase64 : `data:image/png;base64,${imageBase64}`;
+  private toDataImageUrl(imageBase64: string, imageMimeType: ScreenSummaryInput["imageMimeType"]): string {
+    return imageBase64.startsWith("data:") ? imageBase64 : `data:${imageMimeType ?? "image/png"};base64,${imageBase64}`;
   }
+}
+
+function requestSignal(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }

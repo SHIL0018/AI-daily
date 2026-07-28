@@ -7,6 +7,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.main.json",
     "test": "vitest run",
+    "test:main": "vitest run --config vitest.main.config.ts",
     "build:main": "tsc -p tsconfig.main.json",
     "build:renderer": "vite build",
     "build": "npm run build:main && npm run build:renderer",
@@ -18,25 +19,25 @@
     "dist": "npm run build && electron-builder"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "latest",
-    "active-win": "latest",
-    "better-sqlite3": "latest",
-    "electron-log": "latest",
-    "lucide-react": "^0.468.0",
-    "react": "latest",
-    "react-dom": "latest"
+    "active-win": "9.0.0",
+    "better-sqlite3": "12.11.1",
+    "electron-log": "5.4.4",
+    "lucide-react": "0.468.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "latest",
-    "@types/node": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "cross-env": "latest",
-    "electron": "latest",
-    "electron-builder": "latest",
-    "typescript": "latest",
-    "vite": "latest",
-    "vitest": "^3.2.7"
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "26.0.1",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.3",
+    "cross-env": "10.1.0",
+    "electron": "43.0.0",
+    "electron-builder": "26.15.3",
+    "typescript": "6.0.3",
+    "vite": "8.1.1",
+    "vitest": "3.2.7"
   },
   "build": {
     "appId": "com.activitydaily.client",

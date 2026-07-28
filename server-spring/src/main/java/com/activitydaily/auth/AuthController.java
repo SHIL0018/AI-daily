@@ -4,6 +4,8 @@ import com.activitydaily.common.ApiResponse;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Size;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -32,7 +34,11 @@ public class AuthController {
         return ApiResponse.ok(authService.refresh(request.refreshToken()));
     }
 
-    public record RegisterRequest(@NotBlank String email, @NotBlank String username, @NotBlank String password) {}
-    public record LoginRequest(@NotBlank String email, @NotBlank String password) {}
+    public record RegisterRequest(
+            @NotBlank @Email String email,
+            @NotBlank @Size(min = 2, max = 100) String username,
+            @NotBlank @Size(min = 10, max = 128) String password
+    ) {}
+    public record LoginRequest(@NotBlank @Email String email, @NotBlank String password) {}
     public record RefreshRequest(@NotBlank @JsonProperty("refresh_token") String refreshToken) {}
 }

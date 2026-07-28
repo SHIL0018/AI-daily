@@ -269,6 +269,8 @@ tbody tr:hover { background: #fafcfb; }
 .duration-cell { font-family: Bahnschrift, sans-serif; font-size: 12px; white-space: nowrap; }
 .danger-icon-button { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--muted-light); }
 .danger-icon-button:hover { border-color: #efc9c0; background: var(--coral-soft); color: var(--coral); }
+.table-pagination { min-height: 62px; display: flex; align-items: center; justify-content: center; gap: 14px; padding: 10px 14px; border-top: 1px solid var(--line); background: var(--surface-muted); }
+.table-pagination span { min-width: 92px; color: var(--muted); text-align: center; font-size: 11px; }
 
 .api-page { width: min(880px, 100%); display: grid; gap: 18px; }
 .api-intro { min-height: 86px; display: flex; align-items: center; gap: 14px; padding-bottom: 18px; border-bottom: 1px solid var(--line-strong); }

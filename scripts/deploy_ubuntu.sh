@@ -46,6 +46,9 @@ APP_DATABASE_URL=jdbc:postgresql://127.0.0.1:5432/$DB_NAME
 APP_DATABASE_USERNAME=$DB_USER
 APP_DATABASE_PASSWORD=$DB_PASSWORD
 APP_DATABASE_DRIVER=org.postgresql.Driver
+SPRING_PROFILES_ACTIVE=prod
+APP_REGISTRATION_ENABLED=false
+APP_ALLOWED_ORIGINS=http://127.0.0.1
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_DEFAULT_MODEL=deepseek-v4-flash
 DEEPSEEK_DEEP_ANALYSIS_MODEL=deepseek-v4-pro
@@ -53,6 +56,11 @@ DEEPSEEK_TIMEOUT_SECONDS=120
 DEEPSEEK_MAX_RETRIES=2
 ENV
 fi
+
+sudo grep -q '^SPRING_PROFILES_ACTIVE=' "$APP_DIR/.env" || echo 'SPRING_PROFILES_ACTIVE=prod' | sudo tee -a "$APP_DIR/.env" >/dev/null
+sudo grep -q '^APP_REGISTRATION_ENABLED=' "$APP_DIR/.env" || echo 'APP_REGISTRATION_ENABLED=false' | sudo tee -a "$APP_DIR/.env" >/dev/null
+sudo grep -q '^APP_ALLOWED_ORIGINS=' "$APP_DIR/.env" || echo 'APP_ALLOWED_ORIGINS=http://127.0.0.1' | sudo tee -a "$APP_DIR/.env" >/dev/null
+sudo chmod 600 "$APP_DIR/.env"
 
 DB_PASSWORD="$(sudo awk -F= '/^APP_DATABASE_PASSWORD=/{print $2}' "$APP_DIR/.env")"
 sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'" | grep -q 1 || sudo -u postgres psql -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASSWORD';"
@@ -70,6 +78,7 @@ sudo mvn -q -DskipTests package
 sudo cp target/activity-daily-server-*.jar activity-daily-server.jar
 
 sudo chown -R "$APP_USER:$APP_USER" "$APP_DIR"
+sudo chown "$APP_USER:$APP_USER" "$APP_DIR/.env"
 sudo chown -R www-data:www-data "$WEB_DIR"
 sudo cp "$APP_DIR/deploy/activity-daily.service" /etc/systemd/system/activity-daily.service
 sudo cp "$APP_DIR/deploy/nginx/activity-daily.conf" /etc/nginx/sites-available/activity-daily.conf

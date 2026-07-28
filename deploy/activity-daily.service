@@ -6,6 +6,7 @@ After=network.target postgresql.service
 Type=simple
 WorkingDirectory=/opt/activity-daily/server-spring
 EnvironmentFile=/opt/activity-daily/.env
+Environment=SPRING_PROFILES_ACTIVE=prod
 ExecStart=/usr/bin/java -jar /opt/activity-daily/server-spring/activity-daily-server.jar
 Restart=always
 RestartSec=5

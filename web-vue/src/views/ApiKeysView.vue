@@ -2,9 +2,9 @@
 import { computed, onMounted, ref } from "vue";
 import { CheckCircle2, Eye, EyeOff, KeyRound, Save, ShieldCheck, Trash2 } from "lucide-vue-next";
 import { apiRequest } from "../api";
+import { cacheApiKeyStatus, getApiKeyStatus, type ApiKeyStatus } from "../apiKeyStatus";
 
-type KeyStatus = { configured: boolean; key_hint: string; updated_at?: string };
-const status = ref<KeyStatus>({ configured: false, key_hint: "" });
+const status = ref<ApiKeyStatus>({ configured: false, key_hint: "" });
 const apiKey = ref("");
 const message = ref("");
 const loading = ref(false);
@@ -13,7 +13,7 @@ const canSave = computed(() => apiKey.value.trim().length >= 8 && !loading.value
 
 async function load() {
   try {
-    status.value = await apiRequest<KeyStatus>("/api/v1/api-keys/deepseek");
+    status.value = await getApiKeyStatus(true);
   } catch (err) {
     message.value = err instanceof Error ? err.message : "状态加载失败";
   }
@@ -24,7 +24,8 @@ async function save() {
   message.value = "";
   loading.value = true;
   try {
-    status.value = await apiRequest<KeyStatus>("/api/v1/api-keys/deepseek", { method: "PUT", body: JSON.stringify({ api_key: apiKey.value.trim() }) });
+    status.value = await apiRequest<ApiKeyStatus>("/api/v1/api-keys/deepseek", { method: "PUT", body: JSON.stringify({ api_key: apiKey.value.trim() }) });
+    cacheApiKeyStatus(status.value);
     apiKey.value = "";
     message.value = "API Key 已保存";
   } catch (err) {
@@ -38,7 +39,8 @@ async function remove() {
   if (!confirm("确认删除已保存的 API Key？")) return;
   loading.value = true;
   try {
-    status.value = await apiRequest<KeyStatus>("/api/v1/api-keys/deepseek", { method: "DELETE" });
+    status.value = await apiRequest<ApiKeyStatus>("/api/v1/api-keys/deepseek", { method: "DELETE" });
+    cacheApiKeyStatus(status.value);
     message.value = "API Key 已删除";
   } catch (err) {
     message.value = err instanceof Error ? err.message : "删除失败";

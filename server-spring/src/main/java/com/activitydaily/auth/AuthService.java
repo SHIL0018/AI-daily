@@ -28,9 +28,12 @@ public class AuthService {
 
     @Transactional
     public Map<String, Object> register(AuthController.RegisterRequest request) {
+        if (!properties.isRegistrationEnabled()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "REGISTRATION_DISABLED", "注册已关闭，请联系管理员");
+        }
         String userId = TextUtil.newId();
         jdbc.update("INSERT INTO users (id, email, username, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                userId, request.email().toLowerCase(), request.username(), passwordEncoder.encode(request.password()), TimeUtil.nowTs(), TimeUtil.nowTs());
+                userId, request.email().trim().toLowerCase(), request.username().trim(), passwordEncoder.encode(request.password()), TimeUtil.nowTs(), TimeUtil.nowTs());
         return Map.of("user_id", userId);
     }
 

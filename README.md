@@ -189,8 +189,11 @@ cp .env.example .env
 
 ```text
 SERVER_PORT=8080
-APP_TOKEN_SECRET=change-me
-APP_API_KEY_SECRET=change-me-too
+SPRING_PROFILES_ACTIVE=prod
+APP_TOKEN_SECRET=<至少 32 字符的随机值>
+APP_API_KEY_SECRET=<另一个不同的至少 32 字符随机值>
+APP_ALLOWED_ORIGINS=http://127.0.0.1
+APP_REGISTRATION_ENABLED=false
 APP_DATABASE_URL=jdbc:postgresql://127.0.0.1:5432/activity_daily
 APP_DATABASE_USERNAME=activitydaily
 APP_DATABASE_PASSWORD=change-me
@@ -200,7 +203,7 @@ DEEPSEEK_DEFAULT_MODEL=deepseek-v4-flash
 DEEPSEEK_DEEP_ANALYSIS_MODEL=deepseek-v4-pro
 ```
 
-本地开发可以直接使用 H2；生产环境建议使用 PostgreSQL，并务必修改默认密钥和数据库密码。
+本地开发可以直接使用 H2。生产环境必须启用 `prod` 配置档，并设置两个不同的强密钥和明确的 CORS 来源，否则服务会拒绝启动。生产环境默认关闭注册；需要新增账号时可临时把 `APP_REGISTRATION_ENABLED` 改为 `true`，注册完成后再关闭。
 
 ## 部署
 
@@ -227,7 +230,7 @@ sudo nginx -t
 
 ```bash
 cp .env.example .env
-# 先修改 APP_TOKEN_SECRET、APP_API_KEY_SECRET 和 APP_DATABASE_PASSWORD
+# 先设置两个不同的强密钥、APP_ALLOWED_ORIGINS 和数据库密码
 docker compose up -d --build
 ```
 

@@ -29,4 +29,6 @@ activity-daily:
   deepseek-deep-model: ${DEEPSEEK_DEEP_ANALYSIS_MODEL:deepseek-v4-pro}
   deepseek-timeout-seconds: ${DEEPSEEK_TIMEOUT_SECONDS:120}
   deepseek-max-retries: ${DEEPSEEK_MAX_RETRIES:2}
+  report-refresh-delay-seconds: ${REPORT_REFRESH_DELAY_SECONDS:10}
+  registration-enabled: ${APP_REGISTRATION_ENABLED:true}
   allowed-origins: ${APP_ALLOWED_ORIGINS:*}

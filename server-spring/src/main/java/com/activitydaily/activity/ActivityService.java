@@ -2,14 +2,14 @@ package com.activitydaily.activity;
 
 import com.activitydaily.common.ApiException;
 import com.activitydaily.device.DeviceService;
+import com.activitydaily.report.ReportRefreshCoordinator;
 import com.activitydaily.report.ReportService;
 import com.activitydaily.util.JsonUtil;
 import com.activitydaily.util.TextUtil;
 import com.activitydaily.util.TimeUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.sql.Timestamp;
 import java.util.*;
-import org.springframework.context.annotation.Lazy;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -22,67 +22,66 @@ public class ActivityService {
     private final ObjectMapper mapper;
     private final DeviceService deviceService;
     private final ReportService reportService;
+    private final ReportRefreshCoordinator reportRefreshCoordinator;
 
-    public ActivityService(JdbcTemplate jdbc, ObjectMapper mapper, DeviceService deviceService, @Lazy ReportService reportService) {
+    public ActivityService(JdbcTemplate jdbc, ObjectMapper mapper, DeviceService deviceService,
+                           ReportService reportService, ReportRefreshCoordinator reportRefreshCoordinator) {
         this.jdbc = jdbc;
         this.mapper = mapper;
         this.deviceService = deviceService;
         this.reportService = reportService;
+        this.reportRefreshCoordinator = reportRefreshCoordinator;
     }
 
     @Transactional
-    public Map<String, Object> upload(String userId, ActivityController.ActivityBatch request) {
+    public BatchUploadResult upload(String userId, ActivityController.ActivityBatch request) {
         deviceService.ensureActiveUser(userId);
-        var devices = jdbc.queryForList("SELECT * FROM devices WHERE id=? AND user_id=?", request.deviceId(), userId);
+        var devices = jdbc.queryForList("SELECT status FROM devices WHERE id=? AND user_id=?", request.deviceId(), userId);
         if (devices.isEmpty()) throw new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "device not found");
         if (!"active".equals(String.valueOf(devices.get(0).get("status")))) throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "device disabled");
 
-        int accepted = 0, duplicated = 0, failed = 0;
+        int duplicated = 0, failed = 0;
         List<Map<String, Object>> results = new ArrayList<>();
-        Set<String> touchedDates = new HashSet<>();
+        LinkedHashMap<String, ActivityController.ActivityRecordIn> validRecords = new LinkedHashMap<>();
         for (ActivityController.ActivityRecordIn record : Optional.ofNullable(request.records()).orElse(List.of())) {
             try {
                 validateRecord(record);
-                var existing = jdbc.queryForList("SELECT id FROM activity_records WHERE user_id=? AND device_id=? AND client_record_id=?", userId, request.deviceId(), record.clientRecordId());
-                if (!existing.isEmpty()) {
+                if (validRecords.putIfAbsent(record.clientRecordId(), record) != null) {
                     duplicated++;
-                    results.add(Map.of("client_record_id", record.clientRecordId(), "server_record_id", existing.get(0).get("id"), "status", "duplicated"));
-                    continue;
+                    results.add(result(record.clientRecordId(), null, "duplicated", "duplicate id in request"));
                 }
-                String recordId = TextUtil.newId();
-                jdbc.update("""
-                        INSERT INTO activity_records
-                        (id, user_id, device_id, client_record_id, session_id, start_time, end_time, duration_seconds, app_name, window_title, process_name, summary, category, confidence, privacy_level, metadata, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        recordId, userId, request.deviceId(), record.clientRecordId(), record.sessionId(), record.startTime(), record.endTime(), record.durationSeconds(),
-                        TextUtil.redact(record.appName()), TextUtil.redact(record.windowTitle()), TextUtil.redact(record.processName()), TextUtil.redact(record.summary()),
-                        record.category(), record.confidence(), privacy(record.privacyLevel()), JsonUtil.write(mapper, Optional.ofNullable(record.metadata()).orElse(Map.of())), TimeUtil.nowTs(), TimeUtil.nowTs());
-                accepted++;
-                touchedDates.add(TimeUtil.dateFromIso(record.startTime()));
-                results.add(Map.of("client_record_id", record.clientRecordId(), "server_record_id", recordId, "status", "accepted"));
-            } catch (DuplicateKeyException ex) {
-                duplicated++;
-                results.add(Map.of("client_record_id", record.clientRecordId(), "status", "duplicated"));
             } catch (Exception ex) {
                 failed++;
-                results.add(Map.of("client_record_id", record.clientRecordId(), "status", "failed", "error", ex.getMessage()));
+                results.add(result(record == null ? null : record.clientRecordId(), null, "failed", String.valueOf(ex.getMessage())));
             }
         }
-        jdbc.update("UPDATE devices SET last_seen_at=?, updated_at=? WHERE id=?", TimeUtil.nowTs(), TimeUtil.nowTs(), request.deviceId());
-        for (String date : touchedDates) {
-            reportService.markStale(userId, date);
-            reportService.generate(userId, date, userTimezone(userId));
+
+        Map<String, String> existing = findExistingRecordIds(userId, request.deviceId(), validRecords.keySet());
+        List<PreparedRecord> inserts = new ArrayList<>();
+        Set<String> touchedDates = new TreeSet<>();
+        Timestamp now = TimeUtil.nowTs();
+        for (ActivityController.ActivityRecordIn record : validRecords.values()) {
+            String existingId = existing.get(record.clientRecordId());
+            if (existingId != null) {
+                duplicated++;
+                results.add(result(record.clientRecordId(), existingId, "duplicated", null));
+                continue;
+            }
+            String recordId = TextUtil.newId();
+            inserts.add(prepareRecord(recordId, userId, request.deviceId(), record, now));
+            touchedDates.add(TimeUtil.dateFromIso(record.startTime()));
+            results.add(result(record.clientRecordId(), recordId, "accepted", null));
         }
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("accepted", accepted);
-        data.put("duplicated", duplicated);
-        data.put("failed", failed);
-        data.put("results", results);
-        return data;
+
+        insertBatch(inserts);
+        jdbc.update("UPDATE devices SET last_seen_at=?, updated_at=? WHERE id=?", now, now, request.deviceId());
+        reportService.markStale(userId, touchedDates);
+        touchedDates.forEach(date -> reportRefreshCoordinator.scheduleAfterCommit(userId, date));
+        return new BatchUploadResult(inserts.size(), duplicated, failed, results, List.copyOf(touchedDates));
     }
 
-    public Map<String, Object> list(String userId, String date, int page, int pageSize, String category) {
+    public Map<String, Object> list(String userId, String date, int page, int pageSize, String category,
+                                    String appName, String keyword, String sort, String direction) {
         deviceService.ensureActiveUser(userId);
         int safePage = Math.max(page, 1);
         int safePageSize = Math.min(Math.max(pageSize, 1), 200);
@@ -100,21 +99,41 @@ public class ActivityService {
             where.append(" AND category=?");
             params.add(category);
         }
+        if (appName != null && !appName.isBlank()) {
+            where.append(" AND app_name=?");
+            params.add(appName.trim());
+        }
+        if (keyword != null && !keyword.isBlank()) {
+            where.append(" AND (LOWER(summary) LIKE ? OR LOWER(COALESCE(app_name, '')) LIKE ?)");
+            String pattern = "%" + keyword.trim().toLowerCase(Locale.ROOT) + "%";
+            params.add(pattern);
+            params.add(pattern);
+        }
 
         Integer total = jdbc.queryForObject("SELECT COUNT(*) FROM activity_records" + where, Integer.class, params.toArray());
+        Integer totalDuration = jdbc.queryForObject("SELECT COALESCE(SUM(duration_seconds), 0) FROM activity_records" + where, Integer.class, params.toArray());
         List<Object> pageParams = new ArrayList<>(params);
         pageParams.add(safePageSize);
         pageParams.add(offset);
+        String sortColumn = Map.of("start_time", "start_time", "duration_seconds", "duration_seconds", "category", "category")
+                .getOrDefault(sort, "start_time");
+        String sortDirection = "asc".equalsIgnoreCase(direction) ? "ASC" : "DESC";
         List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT id, start_time, end_time, duration_seconds, summary, category, app_name, privacy_level, confidence
                 FROM activity_records
-                """ + where + " ORDER BY start_time ASC LIMIT ? OFFSET ?", pageParams.toArray());
+                """ + where + " ORDER BY " + sortColumn + " " + sortDirection + ", id ASC LIMIT ? OFFSET ?", pageParams.toArray());
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("date", date);
         data.put("timezone", userTimezone(userId));
         data.put("records", rows);
         data.put("pagination", Map.of("page", safePage, "page_size", safePageSize, "total", total == null ? 0 : total));
+        data.put("items", rows);
+        data.put("page", safePage);
+        data.put("page_size", safePageSize);
+        data.put("total_items", total == null ? 0 : total);
+        data.put("total_pages", Math.max(1, (int) Math.ceil((total == null ? 0 : total) / (double) safePageSize)));
+        data.put("total_duration_seconds", totalDuration == null ? 0 : totalDuration);
         return data;
     }
 
@@ -136,6 +155,7 @@ public class ActivityService {
         jdbc.update("UPDATE activity_records SET summary=?, category=?, start_time=?, end_time=?, app_name=?, updated_at=? WHERE id=? AND user_id=?",
                 newSummary, newCategory, newStart, newEnd, request.appName() != null ? TextUtil.redact(request.appName()) : old.get("app_name"), TimeUtil.nowTs(), recordId, userId);
         reportService.markStale(userId, TimeUtil.dateFromIso(newStart));
+        reportRefreshCoordinator.scheduleAfterCommit(userId, TimeUtil.dateFromIso(newStart));
         return Map.of("id", recordId);
     }
 
@@ -145,10 +165,18 @@ public class ActivityService {
         var rows = jdbc.queryForList("SELECT start_time FROM activity_records WHERE id=? AND user_id=? AND is_deleted=FALSE", recordId, userId);
         if (rows.isEmpty()) throw new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "record not found");
         jdbc.update("UPDATE activity_records SET is_deleted=TRUE, deleted_at=?, updated_at=? WHERE id=?", TimeUtil.nowTs(), TimeUtil.nowTs(), recordId);
-        reportService.markStale(userId, TimeUtil.dateFromIso(String.valueOf(rows.get(0).get("start_time"))));
+        String date = TimeUtil.dateFromIso(String.valueOf(rows.get(0).get("start_time")));
+        reportService.markStale(userId, date);
+        reportRefreshCoordinator.scheduleAfterCommit(userId, date);
     }
 
     private void validateRecord(ActivityController.ActivityRecordIn record) {
+        if (record == null) throw new IllegalArgumentException("record is required");
+        if (blank(record.clientRecordId())) throw new IllegalArgumentException("client_record_id is required");
+        if (blank(record.sessionId())) throw new IllegalArgumentException("session_id is required");
+        if (blank(record.startTime()) || blank(record.endTime())) throw new IllegalArgumentException("start_time and end_time are required");
+        if (record.durationSeconds() <= 0) throw new IllegalArgumentException("duration_seconds must be positive");
+        if (blank(record.summary())) throw new IllegalArgumentException("summary is required");
         if (!TextUtil.CATEGORIES.contains(record.category())) throw new IllegalArgumentException("invalid category");
         if (!TextUtil.PRIVACY_LEVELS.contains(privacy(record.privacyLevel()))) throw new IllegalArgumentException("invalid privacy_level");
         if (record.metadata() != null && record.metadata().keySet().stream().anyMatch(FORBIDDEN_RAW_FIELDS::contains)) {
@@ -162,5 +190,96 @@ public class ActivityService {
 
     private String userTimezone(String userId) {
         return jdbc.queryForObject("SELECT timezone FROM users WHERE id=?", String.class, userId);
+    }
+
+    private Map<String, String> findExistingRecordIds(String userId, String deviceId, Collection<String> clientRecordIds) {
+        if (clientRecordIds.isEmpty()) return Map.of();
+        String placeholders = String.join(",", Collections.nCopies(clientRecordIds.size(), "?"));
+        List<Object> params = new ArrayList<>();
+        params.add(userId);
+        params.add(deviceId);
+        params.addAll(clientRecordIds);
+        Map<String, String> existing = new HashMap<>();
+        jdbc.queryForList("SELECT client_record_id, id FROM activity_records WHERE user_id=? AND device_id=? AND client_record_id IN (" + placeholders + ")", params.toArray())
+                .forEach(row -> existing.put(String.valueOf(row.get("client_record_id")), String.valueOf(row.get("id"))));
+        return existing;
+    }
+
+    private PreparedRecord prepareRecord(String recordId, String userId, String deviceId,
+                                         ActivityController.ActivityRecordIn record, Timestamp now) {
+        return new PreparedRecord(recordId, userId, deviceId, record.clientRecordId(), record.sessionId(), record.startTime(), record.endTime(), record.durationSeconds(),
+                TextUtil.redact(record.appName()), TextUtil.redact(record.windowTitle()), TextUtil.redact(record.processName()), TextUtil.redact(record.summary()),
+                record.category(), record.confidence(), privacy(record.privacyLevel()),
+                JsonUtil.write(mapper, Optional.ofNullable(record.metadata()).orElse(Map.of())), now);
+    }
+
+    private void insertBatch(List<PreparedRecord> records) {
+        if (records.isEmpty()) return;
+        jdbc.batchUpdate("""
+                INSERT INTO activity_records
+                (id, user_id, device_id, client_record_id, session_id, start_time, end_time, duration_seconds, app_name, window_title, process_name, summary, category, confidence, privacy_level, metadata, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, records, records.size(), (statement, record) -> {
+            statement.setString(1, record.id());
+            statement.setString(2, record.userId());
+            statement.setString(3, record.deviceId());
+            statement.setString(4, record.clientRecordId());
+            statement.setString(5, record.sessionId());
+            statement.setString(6, record.startTime());
+            statement.setString(7, record.endTime());
+            statement.setInt(8, record.durationSeconds());
+            statement.setString(9, record.appName());
+            statement.setString(10, record.windowTitle());
+            statement.setString(11, record.processName());
+            statement.setString(12, record.summary());
+            statement.setString(13, record.category());
+            statement.setObject(14, record.confidence());
+            statement.setString(15, record.privacyLevel());
+            statement.setString(16, record.metadata());
+            statement.setTimestamp(17, record.now());
+            statement.setTimestamp(18, record.now());
+        });
+    }
+
+    private Map<String, Object> result(String clientRecordId, String serverRecordId, String status, String error) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("client_record_id", clientRecordId);
+        if (serverRecordId != null) result.put("server_record_id", serverRecordId);
+        result.put("status", status);
+        if (error != null) result.put("error", error);
+        return result;
+    }
+
+    private boolean blank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private record PreparedRecord(String id, String userId, String deviceId, String clientRecordId,
+                                  String sessionId, String startTime, String endTime, int durationSeconds,
+                                  String appName, String windowTitle, String processName, String summary,
+                                  String category, Double confidence, String privacyLevel, String metadata,
+                                  Timestamp now) {}
+
+    public record BatchUploadResult(int accepted, int duplicated, int failed,
+                                    List<Map<String, Object>> results, List<String> affectedDates) {
+        public Map<String, Object> legacyResponse() {
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("accepted", accepted);
+            data.put("duplicated", duplicated);
+            data.put("failed", failed);
+            data.put("results", results);
+            return data;
+        }
+
+        public Map<String, Object> v2Response() {
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("accepted_count", accepted);
+            data.put("duplicate_count", duplicated);
+            data.put("rejected", results.stream().filter(item -> "failed".equals(item.get("status"))).toList());
+            data.put("results", results);
+            data.put("affected_dates", affectedDates);
+            data.put("report_refresh_pending", !affectedDates.isEmpty());
+            return data;
+        }
     }
 }

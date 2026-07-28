@@ -1,12 +1,13 @@
 ﻿import { ipcMain, shell } from "electron";
 import { IPC } from "../shared/ipcChannels";
+import { BrowserWindow } from "electron";
 import type { ClientSettings } from "../shared/types";
 import { DEFAULT_SETTINGS } from "../shared/constants";
 import { ActivityRecordRepository } from "./storage/ActivityRecordRepository";
 import { SettingsRepository } from "./storage/SettingsRepository";
 import type { RecordScheduler } from "./scheduler/RecordScheduler";
 import type { SyncService } from "./sync/SyncService";
-import { clientLogPath, logsDir } from "./logs/logger";
+import { getClientLogPath, getLogsDir } from "./logs/logger";
 
 export function registerIpcHandlers(options: {
   scheduler: RecordScheduler;
@@ -15,6 +16,20 @@ export function registerIpcHandlers(options: {
   records: ActivityRecordRepository;
 }) {
   const { scheduler, syncService, settingsRepository, records } = options;
+  let publishTimer: NodeJS.Timeout | undefined;
+  const publishDashboard = () => {
+    if (publishTimer) clearTimeout(publishTimer);
+    publishTimer = setTimeout(() => {
+      publishTimer = undefined;
+      void Promise.all([scheduler.status(), Promise.resolve(records.list(3))]).then(([status, recentRecords]) => {
+        for (const window of BrowserWindow.getAllWindows()) {
+          if (!window.isDestroyed()) window.webContents.send(IPC.dashboardChanged, { status, recentRecords });
+        }
+      });
+    }, 25);
+  };
+  scheduler.subscribe(publishDashboard);
+  syncService.subscribe(publishDashboard);
 
   ipcMain.handle(IPC.recorderStart, () => scheduler.start());
   ipcMain.handle(IPC.recorderPause, () => scheduler.pause());
@@ -23,8 +38,13 @@ export function registerIpcHandlers(options: {
   ipcMain.handle(IPC.recorderStatus, () => scheduler.status());
   ipcMain.handle(IPC.modelHealth, () => scheduler.healthCheck());
   ipcMain.handle(IPC.syncRun, () => syncService.syncOnce());
+  ipcMain.handle(IPC.syncRetryFailed, () => syncService.retryFailedRecords());
   ipcMain.handle(IPC.recordsList, (_event, limit?: number) => records.list(limit ?? 100));
-  ipcMain.handle(IPC.recordsClear, () => records.clear());
+  ipcMain.handle(IPC.recordsPage, (_event, page?: number, pageSize?: number) => records.listPage(page, pageSize));
+  ipcMain.handle(IPC.recordsClear, () => {
+    records.clear();
+    publishDashboard();
+  });
   ipcMain.handle(IPC.settingsGet, () => publicSettings(settingsRepository));
   ipcMain.handle(IPC.settingsUpdate, (_event, patch: Partial<ClientSettings> & Record<string, unknown>) => {
     if (!scheduler.canUpdateSettings()) throw new Error("正在记录时不能修改设置");
@@ -43,8 +63,8 @@ export function registerIpcHandlers(options: {
     const settings = settingsRepository.getAll();
     return shell.openExternal(settings.serverUrl);
   });
-  ipcMain.handle(IPC.openLogsFolder, () => shell.openPath(logsDir));
-  ipcMain.handle(IPC.getLogPath, () => clientLogPath);
+  ipcMain.handle(IPC.openLogsFolder, () => shell.openPath(getLogsDir()));
+  ipcMain.handle(IPC.getLogPath, () => getClientLogPath());
 }
 
 function publicSettings(settingsRepository: SettingsRepository): ClientSettings & Record<string, unknown> {
